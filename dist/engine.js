@@ -108,7 +108,15 @@ function buildModel(data,request,armors,charms,excluded=[]){
  const skillTerms=Object.fromEntries(request.skills.map(s=>[s.id,[]]));const capacity=[[],[],[],[]];const pieces=[];
  const options={augment:true,deleteSkills:true,...request.options};
  for(const a of armors){
-  const x=lp.variable('a');const native=nativeMap(a);const rec=[],cost=[],def=[[a.defense,x]];const edits=[];const numeric=[];const types=[];
+  const x=lp.variable('a');const fixed=request.options?.fixedArmors?.[a.part];
+  if(fixed){
+   if(fixed.id!==a.id)throw new Error('固定防具候选不一致');
+   const evaluated=evaluateArmor(data,request,fixed);
+   for(const r of request.skills)if(evaluated.levels[r.id])skillTerms[r.id].push([evaluated.levels[r.id],x]);
+   caps(evaluated.slots).forEach((v,i)=>{if(v)capacity[i].push([v,x]);});
+   pieces.push({x,a,fixed:fixed.atoms});continue;
+  }
+  const native=nativeMap(a);const rec=[],cost=[],def=[[a.defense,x]];const edits=[];const numeric=[];const types=[];
   for(const r of request.skills)if(native[r.id])skillTerms[r.id].push([native[r.id],x]);
   const active=options.augment&&a.pool>0;const pool=data.atoms.filter(v=>v.pool===a.pool);const allowSkills=active&&pool.some(v=>v.category===20&&v.cost>0)&&a.pool!==13;
   if(allowSkills){
@@ -153,14 +161,15 @@ function buildModel(data,request,armors,charms,excluded=[]){
    rec.push([atoms.length,n]);cost.push([sum(atoms.map(x=>x.cost)),n]);cap.forEach((v,i)=>{if(v)capacity[i].push([v,n]);});
   }
   lp.constraint([...choices.map(c=>[1,c.n]),[-1,x]],'=',0);
+  lp.constraint([...edits.filter(e=>e.sign>0).map(e=>[1,e.n]),...choices.map(c=>[c.atoms.length,c.n]),[-(request.options?.augmentLimits?.[a.part]??7),x]],'<=',0);
   lp.constraint([...rec,[-7,x]],'<=',0);lp.constraint([...cost,[-a.budget,x]],'<=',0);lp.constraint(def,'>=',0);
   pieces.push({x,a,edits,numeric,choices});
  }
  for(const part of PARTS)lp.constraint(pieces.filter(p=>p.a.part===part).map(p=>[1,p.x]),'=',1);
- for(const ids of excluded)lp.constraint(pieces.filter(p=>ids.includes(p.a.id)).map(p=>[1,p.x]),'<=',4);
  const charmVars=charms.map(c=>{
   const n=lp.variable('charm');for(const s of c.skills)if(skillTerms[s.skill_id])skillTerms[s.skill_id].push([s.level,n]);caps(c.slots).forEach((v,i)=>{if(v)capacity[i].push([v,n]);});return {n,c};
  });lp.constraint(charmVars.map(x=>[1,x.n]),'=',1);
+ for(const ids of excluded)addExclusion({lp,pieces,charms:charmVars},ids);
  const decos=[];
  for(const d of data.decorations){
   if(!d.skills.some(s=>skillTerms[s.skill_id]))continue;
@@ -176,6 +185,7 @@ function reconstruct(model,solution,data,request){
  const get=n=>Math.round(solution.Columns?.[n]?.Primal||0);
  if(model.lp.vars.some(v=>Math.abs((solution.Columns?.[v.n]?.Primal||0)-get(v.n))>1e-4))throw new Error('求解尚未得到整数可行解');
  const armors=model.pieces.filter(p=>get(p.x)===1).map(p=>{
+  if(p.fixed)return {id:p.a.id,atoms:JSON.parse(JSON.stringify(p.fixed))};
   const atoms=[];for(const e of p.edits){const count=get(e.n);if(count)atoms.push({atomId:e.atom,skillId:e.skill,value:e.sign,count});}
   for(const e of p.numeric){const count=get(e.n);if(count)atoms.push({atomId:e.atom,value:e.value,valueIndex:e.valueIndex,attribute:e.attribute,count});}
   const choice=p.choices.find(c=>get(c.n));if(!choice)throw new Error('缺少孔位状态');
@@ -193,7 +203,7 @@ function packDecorations(containers,decorations){
  return slots;
 }
 function validateCharm(data,c){
- if(!c||c.skills.length<1||c.skills.length>2||new Set(c.skills.map(s=>s.skill_id)).size!==c.skills.length)throw new Error('护石技能结构非法');
+ if(!c||!Array.isArray(c.skills)||!Array.isArray(c.slots)||c.skills.length<1||c.skills.length>2||new Set(c.skills.map(s=>s.skill_id)).size!==c.skills.length)throw new Error('护石技能结构非法');
  if(c.fixed){const f=data.fixedCharms.find(x=>x.id===c.id);if(!f||JSON.stringify(f.skills)!==JSON.stringify(c.skills)||JSON.stringify(f.slots)!==JSON.stringify(c.slots))throw new Error('固定护石数据不符');return;}
  const method=data.melding.methods[c.method];if(!method)throw new Error('未知炼金方式');
  const rows=c.skills.map(s=>method.skills.find(r=>sid(r.skillId)===s.skill_id));if(rows.some(x=>!x))throw new Error('护石技能不在对应炼金池');
@@ -202,12 +212,14 @@ function validateCharm(data,c){
  const shapes=method.pattern==='AlchemyHaki'||method.pattern==='AlchemyEnkan'?data.melding.quriousSlots.filter(s=>s.weight>0).map(s=>s.slots):ordinarySlotShapes(data.melding,method,rows[0].grade,rows[1]?.grade||'None');
  if(!shapes.some(s=>JSON.stringify(s)===JSON.stringify(c.slots)))throw new Error('护石孔位不在该技能档位的合法支持中');
 }
-function validateResult(data,request,result){
- const skillIndex=new Map(data.skills.map(s=>[s.id,s]));const totals={};const add=(id,lv)=>{totals[id]=(totals[id]||0)+lv;};
- const weapon=data.weapons.find(w=>w.id===result.weaponId);if(!weapon||weapon.id!==request.weaponId)throw new Error('武器与请求不一致');
- if(result.armors.length!==5||new Set(result.armors.map(v=>data.armors.find(a=>a.id===v.id)?.part)).size!==5)throw new Error('必须恰好选择五个不同部位');
- const containers=[{id:weapon.id,slots:weapon.slots}],pieces=[];let defense=weapon.defense||0;
- for(const piece of result.armors){
+function atomSignature(atoms){
+ const map=new Map();for(const t of atoms||[]){const key=[t.atomId,t.skillId??'',t.value,t.valueIndex??0].join(':');map.set(key,(map.get(key)||0)+t.count);}
+ return JSON.stringify([...map].sort((a,b)=>a[0].localeCompare(b[0])));
+}
+function charmSignature(c){return JSON.stringify([c?.empty===true,c?.fixed?c.id:null,c?.method||null,c?.skills?.map(s=>[s.skill_id,s.level]),c?.slots]);}
+function evaluateArmor(data,request,piece){
+ const skillIndex=new Map(data.skills.map(s=>[s.id,s]));
+ if(!piece||!Array.isArray(piece.atoms))throw new Error('防具炼化记录无效');
   const a=data.armors.find(a=>a.id===piece.id);if(!a)throw new Error('未知防具');
   if((request.options?.sex==='MaleOnly'&&a.sex==='FemaleOnly')||(request.options?.sex==='FemaleOnly'&&a.sex==='MaleOnly'))throw new Error('防具性别不符');
   if(request.options?.rank==='Master'&&a.rank!=='Master')throw new Error('防具位阶不符');
@@ -235,57 +247,112 @@ function validateResult(data,request,result){
   if(records>7||cost>a.budget||def<0)throw new Error('炼化条数、cost或防御下界非法');
   if(a.skills.length+added.size>5)throw new Error('原生技能种类＋新增技能种类超过5');
   for(const [id,lv] of Object.entries(removed))if(lv>(nativeMap(a)[id]||0))throw new Error('删除超过原生技能等级');
-  for(const [id,lv] of Object.entries(levels)){if(lv<0||lv>skillIndex.get(+id).max)throw new Error('单件技能等级越界');if(lv)add(+id,lv);}
-  const slots=upgradeSlots(a.slots,points);containers.push({id:a.id,slots});defense+=def;
-  pieces.push({...a,atoms:piece.atoms,levels,slots,records,cost,finalDefense:def,finalResistances:res});
+  for(const [id,lv] of Object.entries(levels)){if(lv<0||lv>skillIndex.get(+id).max)throw new Error('单件技能等级越界');}
+  const slots=upgradeSlots(a.slots,points);
+  const skillAdds=sum(piece.atoms.filter(t=>data.atoms.find(v=>v.pool===a.pool&&v.id===t.atomId)?.category===20&&t.value>0).map(t=>t.count));
+  const skillAddCost=sum(piece.atoms.filter(t=>data.atoms.find(v=>v.pool===a.pool&&v.id===t.atomId)?.category===20&&t.value>0).map(t=>t.count*skillIndex.get(t.skillId).cost));
+  const slotAdds=sum(piece.atoms.filter(t=>data.atoms.find(v=>v.pool===a.pool&&v.id===t.atomId)?.category===19).map(t=>t.count));
+  const additions=skillAdds+slotAdds,limit=request.options?.augmentLimits?.[a.part]??7;
+  if(additions>limit)throw new Error(PART_NAMES[a.part]+'新增技能与孔位词条超过上限'+limit);
+  return {...a,atoms:piece.atoms,levels,slots,records,cost,finalDefense:def,finalResistances:res,skillAdds,skillAddCost,slotAdds,additions};
+}
+function compareResults(a,b,order='defense'){
+ const skillAdds=r=>r.skillAdds??sum(r.pieces.map(p=>p.skillAdds||0));
+ const skillCost=r=>r.skillAddCost??sum((r.pieces||[]).map(p=>p.skillAddCost||0));
+ let score=order==='skillCostAsc'?skillCost(a)-skillCost(b):order==='skillCostDesc'?skillCost(b)-skillCost(a):order==='skillsAsc'?skillAdds(a)-skillAdds(b):order==='skillsDesc'?skillAdds(b)-skillAdds(a):b.defense-a.defense;
+ return score||b.defense-a.defense||a.records-b.records||a.armors.map(x=>x.id).join('|').localeCompare(b.armors.map(x=>x.id).join('|'));
+}
+function validateResult(data,request,result){
+ const skillIndex=new Map(data.skills.map(s=>[s.id,s]));const totals={};const add=(id,lv)=>{totals[id]=(totals[id]||0)+lv;};
+ const weapon=data.weapons.find(w=>w.id===result.weaponId);if(!weapon||weapon.id!==request.weaponId)throw new Error('武器与请求不一致');
+ if(result.armors.length!==5||new Set(result.armors.map(v=>data.armors.find(a=>a.id===v.id)?.part)).size!==5)throw new Error('必须恰好选择五个不同部位');
+ const containers=[{id:weapon.id,slots:weapon.slots}],pieces=[];let defense=weapon.defense||0;
+ for(const piece of result.armors){
+  const evaluated=evaluateArmor(data,request,piece);
+  const fixed=request.options?.fixedArmors?.[evaluated.part];
+  if(fixed&&(fixed.id!==piece.id||atomSignature(fixed.atoms)!==atomSignature(piece.atoms)))throw new Error('固定防具或炼化被改变');
+  containers.push({id:evaluated.id,slots:evaluated.slots});defense+=evaluated.finalDefense;
+  for(const [id,lv] of Object.entries(evaluated.levels))if(lv)add(+id,lv);
+  pieces.push(evaluated);
  }
  if(result.charm?.empty){if(!request.options?.noCharm||result.charm.skills.length||result.charm.slots.length)throw new Error('空护石状态非法');}
  else validateCharm(data,result.charm);
+ if(request.options?.fixedCharm&&charmSignature(request.options.fixedCharm)!==charmSignature(result.charm))throw new Error('固定护石被改变');
  for(const s of result.charm.skills)add(s.skill_id,s.level);containers.push({id:'charm',slots:result.charm.slots});
  const ds=result.decorations.map(x=>{const d=data.decorations.find(d=>d.id===x.id);if(!d||!Number.isInteger(x.count)||x.count<=0)throw new Error('珠子不存在或数量非法');for(const s of d.skills)add(s.skill_id,s.level*x.count);return {d,count:x.count};});
  const placement=packDecorations(containers,ds);
  for(const r of request.skills)if((totals[r.id]||0)<r.level)throw new Error('目标技能未满足：'+skillIndex.get(r.id).name);
- return {...result,pieces,totals,placement,defense,verified:true,records:sum(pieces.map(p=>p.records)),decoCount:sum(ds.map(x=>x.count)),unusedSlots:placement.filter(p=>!p.decorationId).map(p=>p.level),stormsoulConservative:(totals[110]||0)>=4};
+ return {...result,pieces,totals,placement,defense,verified:true,skillAddCost:sum(pieces.map(p=>p.skillAddCost)),skillAdds:sum(pieces.map(p=>p.skillAdds)),slotAdds:sum(pieces.map(p=>p.slotAdds)),additions:sum(pieces.map(p=>p.additions)),records:sum(pieces.map(p=>p.records)),decoCount:sum(ds.map(x=>x.count)),unusedSlots:placement.filter(p=>!p.decorationId).map(p=>p.level),stormsoulConservative:(totals[110]||0)>=4};
+}
+function addExclusion(model,excluded){
+ const ids=Array.isArray(excluded)?excluded:excluded.armors;
+ const terms=model.pieces.filter(p=>ids.includes(p.a.id)).map(p=>[1,p.x]);
+ if(!Array.isArray(excluded)){
+  const charm=model.charms.find(v=>charmSignature(v.c)===excluded.charm);if(charm)terms.push([1,charm.n]);
+  model.lp.constraint(terms,'<=',charm?5:4);
+ }else model.lp.constraint(terms,'<=',4);
+}
+function validateRestrictions(data,request){
+ const options=request.options||{};
+ for(const [part,limit] of Object.entries(options.augmentLimits||{}))if(!PARTS.includes(part)||!Number.isInteger(limit)||limit<0||limit>7)throw new Error('逐件新增上限必须为0至7');
+ for(const [part,piece] of Object.entries(options.fixedArmors||{})){
+  if(!PARTS.includes(part)||data.armors.find(a=>a.id===piece?.id)?.part!==part)throw new Error('固定防具部位不符');
+  evaluateArmor(data,request,piece);
+ }
+ if(options.fixedCharm){if(options.noCharm)throw new Error('固定护石与不使用护石冲突');validateCharm(data,options.fixedCharm);}
 }
 function validateRequest(data,request){
  if(!data.weapons.some(w=>w.id===request.weaponId))throw new Error('请先选择武器');
+ validateRestrictions(data,request);
  if(!Array.isArray(request.skills)||!request.skills.length)throw new Error('请至少选择一个目标技能');
  if(new Set(request.skills.map(s=>s.id)).size!==request.skills.length)throw new Error('目标技能重复');
  for(const r of request.skills){const s=data.skills.find(s=>s.id===r.id);if(!s||!Number.isInteger(r.level)||r.level<1||r.level>s.max)throw new Error('目标技能等级无效');}
 }
 async function search(data,request,highs,progress=()=>{}){
- validateRequest(data,request);const started=Date.now();const deadline=started+Math.max(5,Math.min(180,request.options?.seconds||45))*1000;
- const weights=skillWeights(data,request.skills);const eligible=data.armors.filter(a=>!(request.options?.sex==='MaleOnly'&&a.sex==='FemaleOnly')&&!(request.options?.sex==='FemaleOnly'&&a.sex==='MaleOnly')&&!(request.options?.rank==='Master'&&a.rank!=='Master')&&(!request.options?.locked?.[a.part]||request.options.locked[a.part]===a.id));
+ validateRequest(data,request);const started=Date.now();const deadline=started+Math.max(1,Math.min(180,request.options?.seconds||45))*1000;
+ const timed=request.options?.searchMode==='time',limit=request.options?.limit||3;
+ const weights=skillWeights(data,request.skills);const eligible=data.armors.filter(a=>!(request.options?.sex==='MaleOnly'&&a.sex==='FemaleOnly')&&!(request.options?.sex==='FemaleOnly'&&a.sex==='MaleOnly')&&!(request.options?.rank==='Master'&&a.rank!=='Master')&&(!request.options?.fixedArmors?.[a.part]||request.options.fixedArmors[a.part].id===a.id)&&(!request.options?.locked?.[a.part]||request.options.locked[a.part]===a.id));
  const groups=PARTS.map(p=>eligible.filter(a=>a.part===p).map(a=>({a,score:equivalentScore(a,request.skills,data,weights)})).sort((a,b)=>b.score.total-a.score.total));
  if(groups.some(g=>!g.length))throw new Error('某个部位没有符合条件的防具');
- progress({phase:'charms',message:'整理合法护石与孔位组合…'});const charms=request.options?.noCharm?[{id:'none',name:'不使用护石',skills:[],slots:[],empty:true}]:generateCharms(data,request.skills,{fixed:request.options?.fixedCharms!==false});
+ progress({phase:'charms',message:'整理合法护石与孔位组合…'});
+ const charms=request.options?.fixedCharm?[request.options.fixedCharm]:request.options?.noCharm?[{id:'none',name:'不使用护石',skills:[],slots:[],empty:true}]:generateCharms(data,request.skills,{fixed:request.options?.fixedCharms!==false});
  if(!charms.length)throw new Error('没有可用护石候选');
- const results=[],excluded=[],attempts=[];const tiers=[12,32,Infinity];let exhaustive=false;
+ const results=[],excluded=[],attempts=[],tiers=[12,32,Infinity];let exhaustive=false,domainExhausted=false;
  for(let stage=0;stage<tiers.length&&Date.now()<deadline;stage++){
   const armors=groups.flatMap(g=>g.slice(0,tiers[stage]).map(v=>v.a));
   if(stage>0&&armors.length===groups.flatMap(g=>g.slice(0,tiers[stage-1])).length)continue;
+  const full=armors.length===eligible.length;
+  const stageEnd=timed&&!full?Math.min(deadline,started+(deadline-started)*(stage===0?0.25:0.6)):deadline;
   progress({phase:'model',stage:stage+1,armors:armors.length,charms:charms.length,message:`按等效优先搜索 ${armors.length} 件防具 · ${charms.length} 枚护石候选`});
-  while(Date.now()<deadline&&results.length<(request.options?.limit||3)){
-   const model=buildModel(data,request,armors,charms,excluded);const lp=model.lp.text();
-   const remaining=(deadline-Date.now())/1000;if(remaining<0.2)break;
-   const seconds=stage===2?remaining:Math.min(remaining,stage===0?Math.max(4,(deadline-started)/1000*0.3):Math.max(6,remaining*0.5));
+  const model=buildModel(data,request,armors,charms,excluded);
+  while(Date.now()<stageEnd&&(timed||results.length<limit)){
+   const text=model.lp.text();const remaining=(stageEnd-Date.now())/1000;if(remaining<0.05)break;
+   const seconds=timed?Math.min(remaining,Math.max(0.2,(deadline-started)/1000*0.15)):full?remaining:Math.min(remaining,stage===0?Math.max(4,(deadline-started)/1000*0.3):Math.max(6,remaining*0.5));
    progress({phase:'solve',stage:stage+1,message:`正在求解第 ${results.length+1} 套方案…`,variables:model.lp.vars.length});
-   const raw=highs.solve(lp,{output_flag:false,time_limit:seconds,mip_rel_gap:0.02,mip_abs_gap:0.0001,random_seed:0});
-   attempts.push({stage:stage+1,armors:armors.length,status:raw.Status,variables:model.lp.vars.length});
+   const raw=highs.solve(text,{output_flag:false,time_limit:seconds,mip_rel_gap:0.02,mip_abs_gap:0.0001,random_seed:attempts.length});
+   const attempt={stage:stage+1,armors:armors.length,status:raw.Status,variables:model.lp.vars.length};attempts.push(attempt);
    try{
-    const candidate=reconstruct(model,raw,data,request);const verified=validateResult(data,request,candidate);verified.scores=Object.fromEntries(verified.pieces.map(a=>[a.id,equivalentScore(a,request.skills,data,weights)]));
-    results.push(verified);excluded.push(verified.armors.map(a=>a.id));progress({phase:'result',result:verified,index:results.length,message:`找到并校验通过第 ${results.length} 套方案`});
+    if(raw.Status==='Infeasible')throw new Error('当前候选范围已枚举完毕');
+    const verified=validateResult(data,request,reconstruct(model,raw,data,request));verified.scores=Object.fromEntries(verified.pieces.map(a=>[a.id,equivalentScore(a,request.skills,data,weights)]));
+    results.push(verified);
+    const exclusion=timed?{armors:verified.armors.map(a=>a.id),charm:charmSignature(verified.charm)}:verified.armors.map(a=>a.id);
+    excluded.push(exclusion);addExclusion(model,exclusion);
+    progress({phase:'result',result:verified,index:results.length,message:`找到并校验通过第 ${results.length} 套方案`});
    }catch(e){
-    if(raw.Status==='Infeasible'&&stage===2&&results.length===0)exhaustive=true;
-    // A time-limited LP relaxation is not a valid integer result and never means infeasible.
-    attempts[attempts.length-1].validation=e.message;break;
+    attempt.validation=e.message;
+    if(raw.Status==='Infeasible'&&full){exhaustive=results.length===0;domainExhausted=true;}
+    // A full-domain timeout may be retried within the remaining wall-clock budget.
+    if(timed&&full&&raw.Status!=='Infeasible'&&Date.now()<stageEnd-100)continue;
+    break;
    }
   }
-  if(results.length)break;
+  if((!timed&&results.length>=limit)||domainExhausted)break;
  }
- return {status:results.length?'feasible':'unknown',results,elapsedMs:Date.now()-started,attempts,eligible:eligible.length,charms:charms.length,fullModelInfeasible:exhaustive,completeDomain:false,
-  note:'等效仅用于分批搜索；可行方案不保证全局最优。风雷合一额外加成未计入，基础技能总和已满足目标。'};
+ results.sort((a,b)=>compareResults(a,b,request.options?.resultSort||'defense'));
+ return {status:results.length?'feasible':'unknown',results,elapsedMs:Date.now()-started,attempts,eligible:eligible.length,charms:charms.length,fullModelInfeasible:exhaustive,domainExhausted,completeDomain:false,searchMode:timed?'time':'count',
+  note:'方案按防具组合与护石区分；同一组合不枚举所有炼化和珠子变体。限时内持续搜索，不保证穷举或全局最优。风雷合一额外加成未计入。'};
 }
-const api={PARTS,PART_NAMES,METHOD_NAMES,upgradeSlots,caps,ordinarySlotShapes,generateCharms,equivalentScore,buildModel,reconstruct,validateResult,validateCharm,validateRequest,packDecorations,search};
+
+const api={PARTS,PART_NAMES,METHOD_NAMES,upgradeSlots,caps,ordinarySlotShapes,generateCharms,equivalentScore,buildModel,reconstruct,validateResult,validateCharm,validateRequest,packDecorations,validateRestrictions,evaluateArmor,atomSignature,charmSignature,compareResults,search};
 if(typeof module!=='undefined'&&module.exports)module.exports=api;root.ForgeEngine=api;
 })(globalThis);

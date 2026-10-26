@@ -119,7 +119,7 @@ test('页面事件：条件与Mod文件拖入、两种导入、粘贴兼容及�
  function element(id){
   const classes=new Set();let markup='';
   const el={id,value:'',disabled:false,checked:false,textContent:'',dataset:{},classList:{add:v=>classes.add(v),remove:v=>classes.delete(v),toggle:(v,on)=>on===undefined?(classes.has(v)?classes.delete(v):classes.add(v)):on?classes.add(v):classes.delete(v),contains:v=>classes.has(v)},querySelectorAll:()=>[],querySelector:()=>({textContent:''}),focus(){},showModal(){this.open=true;},close(){this.open=false;},getBoundingClientRect:()=>({left:0,top:0,right:100,bottom:100}),replaceChildren(){markup='';},insertAdjacentHTML(_,text){markup+=text;}};
-  Object.defineProperty(el,'innerHTML',{get:()=>markup,set:text=>{markup=text;if(id==='weaponSelect'||id==='weaponType')el.value=text.match(/<option value="([^"]+)"/)?.[1]||'';}});return el;
+  Object.defineProperty(el,'innerHTML',{get:()=>markup,set:text=>{markup=text;for(const [,childId] of text.matchAll(/\bid="([^"]+)"/g))if(!elements.has(childId))elements.set(childId,element(childId));if(id==='weaponSelect'||id==='weaponType')el.value=text.match(/<option value="([^"]+)"/)?.[1]||'';}});return el;
  }
  for(const [,id] of html.matchAll(/\bid="([^"]+)"/g))elements.set(id,element(id));
  const ctx={console,ForgeEngine:E,ForgeConfig:C,ForgeMod:M,ForgeFiles:F,URLSearchParams,TextDecoder,Uint8Array,Blob,location:{hash:''},setTimeout:()=>0,setInterval:()=>0,clearInterval:()=>{},fetch:async()=>({ok:true,json:async()=>data}),navigator:{clipboard:{writeText:async value=>{clipboard=value;}}},localStorage:{getItem:k=>storage.get(k)??null,setItem:(k,v)=>storage.set(k,v),removeItem:k=>storage.delete(k)},URL:{createObjectURL:blob=>{const url='blob:test'+blobs.size;blobs.set(url,blob);return url;},revokeObjectURL:()=>{}},document:{getElementById:id=>elements.get(id)||null,querySelectorAll:()=>[],createElement:()=>({click(){downloads.push({filename:this.download,blob:blobs.get(this.href)});}})}};
@@ -142,4 +142,43 @@ test('页面事件：条件与Mod文件拖入、两种导入、粘贴兼容及�
  assert.equal(payload.inventoryList[0].HyakuryuDecoId,template.backupList[0].HyakuryuDecoId);assert.equal(payload.backupList[0].HyakuryuDecoId,payload.inventoryList[0].HyakuryuDecoId);
  const prior=getState();elements.get('modText').value='{invalid';elements.get('applyModFull').onclick();assert.deepEqual(getState(),prior);assert.equal(elements.get('modDialog').open,false);assert.ok(elements.get('modError').textContent);
  elements.get('clearMod').onclick();assert.equal(storage.has('sunbreak-forge-mod-template-v1'),false);assert.deepEqual(getState(),prior);
+ // New controls use the same real result and state as the import/export workflow.
+ vm.runInContext("openArmor('head')",ctx);assert.equal(elements.get('equipmentDialog').open,true);
+ const armorMatch=JSON.parse(vm.runInContext("JSON.stringify(armorChoices().find(a=>!data.armors.find(b=>b.id===armorEditor.id).name.includes(a.name)))",ctx));
+ vm.runInContext('armorEditor.atoms=JSON.parse(JSON.stringify(fixtureSolution.pieces[0].atoms));',ctx);
+ elements.get('armorSearch').value=armorMatch.name;elements.get('armorSearch').oninput();assert.equal(elements.get('armorSelect').value,armorMatch.id);assert.equal(vm.runInContext('armorEditor.atoms.length',ctx),0);assert.match(elements.get('armorDetails').innerHTML,/基础防御/);
+ vm.runInContext('armorEditor.atoms=[{atomId:144,skillId:0,value:1,count:1}];',ctx);elements.get('armorSearch').oninput();assert.equal(vm.runInContext('armorEditor.atoms.length',ctx),1);
+ elements.get('armorSearch').value='不存在的装备';elements.get('armorSearch').oninput();assert.equal(elements.get('armorSelect').value,'');assert.equal(elements.get('saveArmor').disabled,true);assert.equal(elements.get('addArmorAtom').disabled,true);assert.match(elements.get('armorDetails').textContent,/没有匹配防具/);
+ elements.get('armorSearch').value=armorMatch.name;elements.get('armorSearch').oninput();assert.equal(elements.get('saveArmor').disabled,false);assert.equal(elements.get('armorSelect').value,armorMatch.id);
+
+ vm.runInContext("armorEditor.id=fixtureSolution.pieces[0].id;armorEditor.atoms=JSON.parse(JSON.stringify(fixtureSolution.pieces[0].atoms));",ctx);
+ elements.get('saveArmor').onclick();assert.equal(getState().options.fixedArmors.head.id,solution.pieces[0].id);assert.equal(elements.get('equipmentDialog').open,false);
+ elements.get('fixedEquipment').onchange({target:{dataset:{augmentLimit:'head'},value:'0'}});assert.equal(getState().options.augmentLimits.head,0);
+ elements.get('fixedEquipment').onchange({target:{dataset:{augmentLimit:'head'},value:'7'}});
+ elements.get('fixedEquipment').onclick({target:{closest:selector=>selector==='[data-unlock-armor]'?{dataset:{unlockArmor:'head'}}:null}});assert.equal(getState().options.fixedArmors.head,undefined);
+ elements.get('editCharm').onclick();assert.equal(elements.get('charmDialog').open,true);
+ assert.match(elements.get('fixedEquipment').innerHTML,/最多新增正面词条/);
+ const searchSkill=(index,query)=>{elements.get('charmSkillSearch'+index).value=query;elements.get('charmFields').oninput({target:{dataset:{charmSkillSearch:String(index)}}});};
+ const firstSkillOptions=elements.get('charmSkill0').innerHTML;
+ searchSkill(0,'攻击');assert.match(elements.get('charmSkill0').innerHTML,/>攻击<\/option>/);assert.equal(elements.get('charmSkill0').value,'0');assert.equal(elements.get('charmSkill1').innerHTML,firstSkillOptions.replace('请选择技能','无第二技能'));
+ searchSkill(0,'攻');assert.equal(elements.get('charmSkill0').value,'0');
+ searchSkill(0,'Critical Eye');assert.match(elements.get('charmSkill0').innerHTML,/看破/);assert.equal(elements.get('charmSkill0').value,'5');assert.ok(!elements.get('charmSkill0').innerHTML.includes('>攻击<'));
+ searchSkill(1,'  cRiTiCaL eYe  ');assert.match(elements.get('charmSkill1').innerHTML,/看破/);assert.equal(elements.get('charmSkill1').value,'5');
+ searchSkill(0,'不存在的技能');assert.match(elements.get('charmSkill0').innerHTML,/没有匹配技能/);assert.equal(elements.get('charmSkill0').value,'');assert.equal(elements.get('saveCharm').disabled,true);
+ const beforeInvalidCharm=getState();elements.get('saveCharm').onclick();assert.deepEqual(getState(),beforeInvalidCharm);assert.equal(elements.get('charmDialog').open,true);
+ searchSkill(0,'');assert.equal((elements.get('charmSkill0').innerHTML.match(/<option /g)||[]).length,data.skills.length+1);assert.equal(elements.get('charmSkill0').value,'');assert.equal(elements.get('saveCharm').disabled,false);
+
+
+ for(let i=0;i<2;i++){elements.get('charmSkill'+i).value=solution.charm.skills[i]?String(solution.charm.skills[i].skill_id):'';elements.get('charmLevel'+i).value=String(solution.charm.skills[i]?.level||1);}
+ for(let i=0;i<3;i++)elements.get('charmSlot'+i).value=String(solution.charm.slots[i]||0);
+ elements.get('saveCharm').onclick();assert.equal(elements.get('charmDialog').open,false);assert.deepEqual(getState().options.fixedCharm.skills,solution.charm.skills);
+ elements.get('searchMode').value='time';elements.get('searchMode').onchange();assert.equal(elements.get('limit').disabled,true);assert.equal(getState().options.searchMode,'time');
+ vm.runInContext("lockResult(0)",ctx);assert.equal(Object.keys(getState().options.fixedArmors).length,5);
+ vm.runInContext("found=Array.from({length:12},(_,i)=>({...fixtureSolution,defense:500+i,skillAdds:i,skillAddCost:36-i*3}));renderResults();",ctx);assert.equal(elements.get('resultCount').textContent,12);assert.equal((elements.get('results').innerHTML.match(/<article /g)||[]).length,8);
+ elements.get('nextResults').onclick();assert.equal((elements.get('results').innerHTML.match(/<article /g)||[]).length,4);assert.match(elements.get('resultPageInfo').textContent,/2 \/ 2/);
+ elements.get('resultSort').value='skillsAsc';elements.get('resultSort').onchange();assert.equal(vm.runInContext('found[0].skillAdds',ctx),0);assert.match(elements.get('resultPageInfo').textContent,/1 \/ 2/);
+ elements.get('resultSort').value='skillCostAsc';elements.get('resultSort').onchange();assert.equal(vm.runInContext('found[0].skillAddCost',ctx),3);assert.match(elements.get('results').innerHTML,/新增技能cost/);
+ elements.get('resultSort').value='skillCostDesc';elements.get('resultSort').onchange();assert.equal(vm.runInContext('found[0].skillAddCost',ctx),36);
+ await elements.get('share').onclick();assert.equal(JSON.parse(clipboard).request.options.resultSort,'skillCostDesc');
+
 });
