@@ -61,3 +61,18 @@ test('新增技能cost只合计正向技能，包含重复等级，排除孔位�
  assert.ok(E.compareResults({...a,skillAddCost:6},b,'skillCostAsc')<0);
  for(const sort of ['skillCostAsc','skillCostDesc']){q.options.resultSort=sort;assert.equal(C.normalize(d,C.payload(d,q)).options.resultSort,sort);}
 });
+test('限时排序直接改变MILP目标：高防御与低技能cost选择不同装备，五种方向均生效',()=>{
+ const d=fixture(),q=query();q.skills=[{id:0,level:1}];d.armors[0].skills=[{skill_id:0,level:1}];
+ d.armors.push({...d.armors[0],id:'higher',name:'高防御',defense:200,skills:[]});
+ q.options.searchMode='time';
+ const expected={defense:'higher',skillCostAsc:'head',skillCostDesc:'higher',skillsAsc:'head',skillsDesc:'higher'};
+ for(const [order,id] of Object.entries(expected)){
+  q.options.resultSort=order;const {m,raw}=solve(d,q);assert.equal(raw.Status,'Optimal');const r=E.validateResult(d,q,E.reconstruct(m,raw,d,q));assert.equal(r.pieces.find(p=>p.part==='head').id,id,order);
+  if(order==='skillCostAsc')assert.equal(r.skillAddCost,0);
+  if(order==='skillCostDesc')assert.equal(r.skillAddCost,21);
+  if(order==='skillsDesc')assert.equal(r.skillAdds,7);
+ }
+ q.options.searchMode='count';q.options.resultSort='defense';const count=solve(d,q);assert.equal(E.reconstruct(count.m,count.raw,d,q).armors[0].id,'head');
+ const n=fixture(),t=query();n.armors[0].skills=[{skill_id:0,level:2}];n.atoms.push({pool:1,id:73,category:13,cost:1,values:[{value:20,value_index:0,weight:100}]});t.options.searchMode='time';t.options.resultSort='defense';const numeric=solve(n,t);const v=E.validateResult(n,t,E.reconstruct(numeric.m,numeric.raw,n,t));assert.equal(v.defense,640);
+ assert.equal(new Set(numeric.m.lp.objective.map(x=>x[1])).size,numeric.m.lp.objective.length);
+});

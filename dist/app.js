@@ -75,7 +75,7 @@ function start(){
  else worker=new Worker('./worker.js');
  worker.onmessage=event=>{
   const p=event.data;
-  if(p.phase==='result'){found.push(p.result);if(Date.now()-lastResultsRender>250)renderResults();}
+  if(p.phase==='result'){const existing=found.findIndex(r=>ForgeEngine.resultIdentity(r)===ForgeEngine.resultIdentity(p.result));if(existing<0)found.push(p.result);else found[existing]=p.result;if(Date.now()-lastResultsRender>250)renderResults();}
   if(p.message)$('progressTitle').textContent=p.message;
   if(p.phase==='model')$('progressDetail').textContent='第'+p.stage+'轮 · '+p.armors+'件防具 · '+p.charms+'枚护石候选';
   if(p.phase==='solve')$('progressDetail').textContent='整数约束求解 · '+p.variables.toLocaleString()+'个决策变量';
@@ -134,7 +134,7 @@ function confirmModExport(){
 
 function syncSearchMode(){
  $('limit').disabled=busy||state.options.searchMode==='time';
- $('searchModeHint').textContent=state.options.searchMode==='time'?'忽略方案数量，在时限内持续收集。按防具组合与护石去重；不保证穷举。':'达到指定数量或时限后结束。';
+ $('searchModeHint').textContent=state.options.searchMode==='time'?'忽略方案数量，优先优化下方排序指标；先扩大防具范围，再搜索不同组合。超时不保证全局最优。':'达到指定数量或时限后结束。';
 }
 function renderResults(){
  lastResultsRender=Date.now();found.sort((a,b)=>ForgeEngine.compareResults(a,b,state.options.resultSort));

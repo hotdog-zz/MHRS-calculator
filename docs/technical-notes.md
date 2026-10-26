@@ -1,94 +1,240 @@
-# 曙光配装工房 / Sunbreak Forge
+#!/usr/bin/env python3
+"""Build an account-free standalone HTML and a portable ZIP from exact source."""
+import base64,hashlib,json,re,zipfile
+from pathlib import Path
+R=Path(__file__).resolve().parent
+OUT=R.parent/'deliverables'
+OUT.mkdir(exist_ok=True)
+def b64(raw):return base64.b64encode(raw).decode('ascii')
+def safe_script(text):return re.sub(r'</script',r'<\/script',text,flags=re.I)
+html=(R/'dist/index.html').read_text()
+css=(R/'dist/style.css').read_text()
+html=html.replace('<link rel="stylesheet" href="./style.css">','<style>'+css+'</style>')
+icon='data:image/svg+xml;base64,'+b64((R/'dist/mark.svg').read_bytes())
+html=html.replace('./mark.svg',icon)
+for name in ['engine.js','config.js','mod.js','file-import.js','app.js']:
+    html=html.replace(f'<script src="./{name}" defer></script>','')
+worker=(R/'dist/vendor/highs.js').read_text()+'\n'+(R/'dist/engine.js').read_text()+'\n'+(R/'dist/worker.js').read_text().split('\n',1)[1]
+embedded='\n<script id="embeddedData" type="application/json">'+(R/'dist/data.json').read_text().replace('<','\\u003c')+'</script>'
+embedded+='\n<script id="embeddedWasm" type="application/octet-stream">'+b64((R/'dist/vendor/highs.wasm').read_bytes())+'</script>'
+embedded+='\n<script id="embeddedWorker" type="application/octet-stream">'+b64(worker.encode())+'</script>'
+embedded+='\n<script>'+safe_script((R/'dist/engine.js').read_text())+'</script>'
+embedded+='\n<script>'+safe_script((R/'dist/config.js').read_text())+'</script>'
+embedded+='\n<script>'+safe_script((R/'dist/mod.js').read_text())+'</script>'
+embedded+='\n<script>'+safe_script((R/'dist/file-import.js').read_text())+'</script>'
+embedded+='\n<script>'+safe_script((R/'dist/app.js').read_text())+'</script>'
+html=html.replace('</body>',embedded+'\n</body>')
+# Validate required runtime assets are embedded, not loaded via file/http fetch.
+assert all(f'id="{key}"' in html for key in ['embeddedData','embeddedWasm','embeddedWorker'])
+assert not re.search(r'(?:src|href)="\./',html)
+private_host=re.compile(rb'https?://[a-z0-9-]+[.][a-z0-9-]+[.]chatgpt[.]site',re.I)
+project_id=re.compile(rb'appgprj_[a-z0-9]{10,}',re.I)
+assert not private_host.search(html.encode())
+assert not project_id.search(html.encode())
+standalone=OUT/'SunbreakForge.html';standalone.write_text(html)
+readme='''# 曙光配装工房 · 本地版
 
-浏览器运行的《怪物猎人崛起：曙光》最终内容版配装模拟器。采用已核对的3,925把武器、1,376件实战防具、147个技能和244颗普通珠子。前端选定武器和技能，在独立Web Worker中用HiGHS整数规划联合求解防具、最终状态炼化、护石和珠子，返回经过重新校验的具体插法。
+应用版本：0.4.4
 
-## 运行与验证
+说明更新：2026-10-26
 
-- 静态网站入口为 `dist/index.html`。通过HTTP托管整个 `dist`；Web Worker与Wasm不能用 `file://` 正常运行。
-- 本项目无需安装运行时依赖。HiGHS/highs-js 1.15.4的JS和Wasm已随站点本地分发。
-- `npm test`：节点测试，包含负cost技能删除、五种原生技能名额、七条限制、同技能增减互斥、特殊池13、孔位、真实数据端到端求解与极限用例。
-- `python prepare_data.py`：从同级 `mhrs-data/data` 重建精简网页数据；数据收集包独立保存，当前网页数据已经内置。
-- 网站静态配置与唯一站点ID见 `.openai/hosting.json`。
+为《怪物猎人崛起：曙光》最终内容版寻找配装：选择武器、填写想要的技能，程序会搜索防具、护石、防具炼化和普通珠子的插法。
 
-## 用户确定的规则
+本地版内置装备数据和求解引擎，无需登录，计算时无需联网。配装管理器 Mod 用于把结果带入游戏；只在本地模拟配装时，不需要安装该 Mod。
 
-1. 不使用百龙珠、武器炼化、花链。固定武器的原生普通孔位参与配装。
-2. 防具按头、身、手、腰、脚各选一件；同时检查系列性别限制。
-3. 每件最多7条内部炼化词条，cost之和不超过该件预算，允许留空和剩余预算。
-4. 原生技能种类＋新增种类≤5；删除原生技能不释放种类名额。
-5. 同件同技能不得同时增加、删除；删除不超过原生等级，单件技能最终等级在零与技能上限之间。
-6. 所有原生技能均可作为删除候选，包含用户没有要求的技能。原始删除词条每级cost=-10，且每级计一条。
-7. 使用实际炼化池、技能cost和词条有效数值；池13禁止技能炼化。孔位按先补空、再从左到右扩大的真实规则变化，最多三个4级孔。
-8. 不验证防具随机生成过程的顺序、前缀、重试、末格补偿或随机种子。
-9. 技能目标是最低等级，允许额外技能与溢出。珠子数量不限，每孔最多一颗，普通孔之间没有装备专属插珠限制。
+## 1. 打开本地版
 
-## 模型与等效
+1. 解压整个压缩包。
+2. 用支持 WebAssembly 和 Web Worker 的现代浏览器打开 `SunbreakForge.html`。
+3. 选择武器、添加技能，点击“开始配装”。
 
-`dist/engine.js` 既可以由Node加载，也可以由浏览器Worker加载。
+单文件入口是 `SunbreakForge.html`。`dist/index.html` 是本地服务器入口，不建议直接双击。
 
-- `equivalentScore`：原生目标技能＋原生孔位可容纳的目标珠子收益，补充少量可删技能/预算排序项。按本次目标和珠子表计算，而不是所有装备共用一个固定等效值。社区等效有多种口径，本项目不将其作为合法性判断。
-- 先搜索每部位前12件，再扩至32件，最后全域。初始候选不足时自动扩大，不永久删除低分防具；已找到方案时可以返回，不声称全局最优。
-- 二元变量选择基础防具和护石；整数变量决定增加/删除技能和数值词条；二元孔位状态变量绑定真实升级结果。
-- 所有原生技能的删除变量均存在，未要求技能不会因目标投影被丢弃；原生技能种类计数保持不变。
-- 孔位增长p的cost=6p，用该池的1/2/3点原子词条重建。在同cost、同结果的情况下，较少词条的表示支配较多词条的表示。
-- 只添加目标技能；正耐性词条不会改善当前任何硬约束，所以可安全省略。正防御词条保留用于满足单件防御非负约束。负面词条的有效幅度均来自原始数据。
-- 珠子容量使用四条累计阈值约束：需要至少r级孔的珠子数量≤至少r级的孔位数量。结果按珠子孔级降序、最小合适空孔逐一放入。
-- `validateResult` 不读取求解器约束：根据导出的真实装备、原子词条、护石、珠子重新计算限制、最终技能和实际插法，非法候选不展示。
+如果浏览器限制直接打开本地文件，可在已安装 Python 3 的电脑上使用启动脚本：
 
-护石按炼金方式保留技能位置、正权重等级和相应档位的联合孔位支持；霸气采用15种整组孔位，旧式炼金按照三次抽取和0/4停止规则生成孔位支持；固定特典护石单独匹配。无库存限制时，对同档位固定技能取最大可出等级，对目标贡献相同的护石去重并只去掉被严格支配的孔位。圆环的候选支持被霸气包含，使用霸气的合法见证避免重复搜索。未将不同方法的独立上限随意拼接。
+| 系统 | 启动方法 |
+| --- | --- |
+| Windows | 双击 `start-windows.bat` |
+| macOS | 运行 `start-macos.command`，或在终端执行 `python3 start_local.py` |
+| Linux | 执行 `sh start-linux.sh` 或 `python3 start_local.py` |
 
-## 当前边界
+启动后会自动打开浏览器，默认地址为 `http://127.0.0.1:8787/`。端口被占用时会换用其他端口。运行期间保持启动窗口打开，按 `Ctrl+C` 停止。服务只监听本机。
 
-- 网站是可行性模拟器，不是完整随机过程复刻。护石按所收集数据的技能/档位/孔位支持校验，尚未独立复刻最终游戏的整个生成和作弊检测程序，也未证明随机种子可达性。
-- 风雷合一额外的来源相关技能加成暂不计入；以基础技能总和保证目标，因此结果可能保守。不会将未找到或模型无解表述为游戏规则下的全局无解。
-- 防御显示制作基础防御＋炼化变化＋武器加成，不包含铠玉强化。技能伤害效果、伤害模拟、库存过滤和活动下载拥有状态不在此版本范围内。
-- 固定特典护石保留获取条件；联动装备可用于已有对应内容的存档，并不承诺新存档仍能取得。
-- 小范围可行方案不代表全域最优；时间上限未完成、取消、全域当前保守模型无解统一显示“尚未找到”，不误报不可行。
+## 2. 怎么配装
 
-## 来源
+1. 在“01 选择武器”中选择武器种类和具体武器。
+2. 在“02 目标技能”中添加技能，并设置需要的等级。
+3. 在“04 搜索条件”中选择角色性别、防具范围、是否炼化、是否允许删除原生技能。
+4. 点击“开始配装”，等待结果；需要时可停止搜索。
+5. 查看每件防具的炼化词条、护石、最终技能和逐孔插珠位置。
 
-- MHRice：[数据](https://mhrise.mhrice.info/mhrice.json)，解析源码固定提交 `bc8ef84a0fc61aad079e7ae1fcabd8a188212538`。
-- dtlnor：Max Charm Skill & Slot [SB16.0.0] / Max Possible Qurio Aug [16.0.0]。
-- [MH Data Lab](https://mhdatalab.com/rise)：补充完整炼金表与固定护石；防具名称冲突按照固定解析源码保留原始映射。
-- [等效技能收益讨论](https://forum.gamer.com.tw/Co.php?bsn=05786&sn=1003280)：仅作为启发式设计参考，不复制完整攻略正文。
-- [HiGHS / highs-js](https://github.com/lovasoa/highs-js)：MIT，1.15.4，许可证见 `dist/vendor/LICENSE`。
+目标技能是最低要求，允许结果多出技能或等级溢出。“允许删除原生技能”也包括你没有要求的技能，删除后可以返还炼化 cost。
 
-版本目标为曙光最终内容，来源快照不声称重新独立解包了16.0.2二进制。游戏数据与相关名称属于其各自权利人；补充数据未声明与求解器代码相同的许可。
+最终技能按显示等级从高到低排列，同等级按技能 ID 升序排列。目标列表中的“排序”按钮需要手动点击；添加技能或修改等级不会自动改变顺序。
 
-## 本地便携版
+未找到结果不代表一定无解，可以延长搜索时限或调整条件。当前返回可行方案，不保证全局最优。
 
-`python build_local.py` 生成内嵌数据、Wasm及Worker的单文件HTML和ZIP，无需账号或在线域名。直接用现代浏览器打开HTML即可；也可用仅监听127.0.0.1的 `python3 start_local.py` 运行静态版本（无第三方Python依赖）。复制/导入配装条件使用白名单JSON格式，不包含网页地址或账号信息。
+### 固定已有防具、炼化和护石
 
-## 技能展示顺序（0.2.1）
+“03 固定装备与炼化上限”可以分别指定头、身体、腕、腰、脚；只固定你选择的部位，其他部位仍由工房搜索。
 
-最终技能按实际显示等级（封顶后）降序、同级按数字技能ID升序，目标和额外技能一起排序。目标技能列表只在点击“排序”时按目标等级降序、同级ID升序重排，并保存顺序。修改等级或添加技能时不自动重排。达人艺ID=11，破坏王ID=80，同等级时达人艺在前。
+- 点击“指定装备”，搜索并选择防具，再逐条填写其炼化。搜索会保留仍匹配的装备，否则自动选择第一项匹配装备；切换防具时清空编辑中的炼化。没有填写词条即固定为无炼化。
+- 点击“保存并固定”后，搜索会保留这件防具及其炼化，不会额外增加或替换词条。珠子仍由工房重新安排。
+- 点击“指定护石”，可输入中文或英文名称搜索第一／第二技能，再从筛选后的列表中选择，并填写等级和孔位。搜索后，已选技能若仍匹配就保留，否则自动选择第一项匹配技能；没有匹配时不能保存。保存时检查它是否符合一种合法炼金方式；第二技能允许留空。
+- 已经导入 Mod 模板时，可以点击“从当前 Mod 模板固定装备”，只勾选自己想固定的部位或护石。
+- 结果卡片上的“固定这套装备”可以固定整套防具、炼化和护石，再修改目标继续搜索。点击“解除”可恢复自动搜索。
 
-## Mod 导入与导出（0.3.5）
+固定装备仍需符合所选性别、位阶、炼化开关、删除开关和逐件上限。条件冲突时会提示，需要调整条件或解除固定。
 
-现有“复制条件”“导入条件”和每套方案的网页JSON导出保持原有协议，继续用于分享武器、技能与搜索选项。Mod模板不包含在分享数据中。两个导入弹窗都支持将JSON文件拖入弹窗任意位置、点击选择文件和粘贴文本。每次读取一个文件，最大2MB；读取成功只填充文本，由用户点击按钮应用。连续读取以最后一次选择为准，手动编辑或关闭弹窗会取消尚未完成的读取。
+### 逐件限制新增正面词条
 
-1. 点击“Mod导入”，拖入或选择配装管理器Ver1.1导出的单套JSON文件，也可粘贴全文。
-2. “模板导入”保存模板并同步武器，保留当前目标技能与搜索选项。“全导入”同时选择原武器，将原生技能、启用的防具炼化、护石及普通珠子合计并封顶，按等级降序、同级ID升序替换目标技能；搜索选项保持原值。
-3. 模板的花链、朱／苍之书替换技、猎虫、弩枪改装设置作为导出附属数据保留。因此需导入同武器类型模板；缺少模板或类型不一致时明确提示。
-4. 计算出方案后点击该方案的“Mod导出”，输入配装名称后点击“保存JSON”。填写的名称去除首尾空格后原样写入 `uiInfo.displayName` 和 `mySetInfo.Name`，不追加方案编号；默认名称为模板名加方案编号，可自行修改。文件名沿用Mod自动保存的 `方案编号_62进制秒级时间戳.json`。放入 `reframework/data/EquipmentLoadouts/<武器类型>/`，由Mod刷新后加载。
-5. 导出前重新校验计算结果，并分别转换装备、技能、珠子ID；炼化按次数展开为七条 `{Id, SkillId, ValueIndex}`，珠子按真实孔位同时写入inventoryList与backupList。护石类型由炼金系列、技能/孔位评价值和稀有度表生成，固定特典保留专用ID。
-6. 武器炼化不参与配装求解，导出保留模板武器的CustomBuildup、CustomOpenIdArray、CustomEnable、CustomBuildupType、CustomCount五项状态；百龙珠沿用模板backupList中实际装备的HyakuryuDecoId，并同步写入武器的inventoryList与backupList。百龙珠不参与技能求解。更换武器时检查百龙孔等级（包含保留的已启用百龙孔扩张炼化），不足时明确拒绝导出，不静默丢弃珠子。同类换武器时，已启用的强化条目ID与数值索引须在结果武器的炼化表中受支持，否则提示导入对应武器模板；这项检查不复刻完整武器炼化检测流程。防具炼化CustomCount采用0（样本中存在），不以词条数量代填。强化点数只在模板与结果同件时保留，换装时使用制作初始值。Mod自身的自动解锁武器炼化与强制防具强化选项仍可能覆盖这些值。
+每个部位可设置0～7条的新增正面词条上限，默认7条，保持原有搜索范围。
 
-模板白名单解析后单独存于浏览器，可清除；不会执行Lua，也不上传JSON。全导入会提示来源配装的孔位异常，但仍按其中的已知珠子统计技能；未知装备、技能、词条或数值索引会明确报错，不部分覆盖已有条件。风雷合一来源加成在全导入时按防具原生技能统计；求解模型仍保守。
+- 技能每增加一级计1条，包括给原生技能加等级；同技能增加两级计2条。
+- 一条孔位增长＋1、＋2或＋3都计1条；三条＋1计3条。
+- 技能删除、防御与耐性变化不计入这个新增上限，但仍占用总计七条的内部记录并参与 cost 核算。
+- 固定防具的已有炼化也需要满足该上限。
 
-`tests/mod.test.cjs` 包含真实样本读取、模板同步武器且目标不变、全导入、ID边界、词条数值索引、真实求解结果的Mod往返、模板不变与跨武器类型拒绝。尚未运行实际游戏导入；装备箱索引分配与首次加载行为由Mod负责，文件结构兼容不代表已完成游戏存档实测。
+### 按时限收集和排序
 
-## 固定装备与限时搜索（0.4.0）
+搜索方式可选择“达到方案数量后结束”或“按时限优化排序指标”。限时模式忽略方案数量上限，直接优化所选排序指标：防御优先提高基础防御，低cost优先减少新增技能cost，新增技能等级的升序／降序也分别对应最小化／最大化。同指标时优先提高防御、减少炼化记录。先扩大候选范围，再搜索不同防具组合；扩大范围后也会重新优化已有组合，保留更好的结果。直到时间用完、手动停止，或当前范围枚举完毕。
 
-- `options.fixedArmors` 按部位保存 `{id, atoms}`，防具和炼化共同固定；`options.fixedCharm` 保存经炼金规则验证的完整技能等级与孔位，不参与最大等级或孔位支配过滤。未固定项目照常搜索。
-- `options.augmentLimits` 按部位设置0～7。每个正技能等级计一条，每条孔位增长效果计一条（与增长点数无关）；删除、防御和耐性效果仍占用七条总记录，但不占新增额度。
-- `options.searchMode` 为 `count` 或 `time`。限时模式忽略 `limit`，逐批扩大候选域，通过防具组合与护石的排除约束收集不同方案；同一组合只保留一个炼化／珠子见证。候选域枚举完毕允许提前结束。
-- `options.resultSort` 支持 `defense`、`skillsAsc`、`skillsDesc`、`skillCostAsc`、`skillCostDesc`，只对已经找到的可行方案排序，不代表全局优化。防御沿用制作基础防御＋防具炼化＋武器原生加成，不含铠玉强化。
-- 条件协议0.4.0继续接收旧条件，白名单复制固定防具、逐件上限及护石；不复制完整 Mod 模板。可手动编辑、从 Mod 模板勾选或固定一套已有结果。
-- `tests/advanced.test.cjs` 覆盖锁定与篡改检查、技能／孔位计数、跨候选域限时枚举、固定低等级护石和配置往返；页面事件测试覆盖编辑、解除、分页及排序。
+优先搜索不同的五件防具组合；五件全固定时则搜索不同护石。同一防具与护石组合的更好炼化结果会替换旧结果。不保证穷举，也不保证全局最优。
 
-0.4.1 新增按技能添加 cost 排序。`skillAddCost` 由独立校验从每件防具实际的正向技能词条重新计算（技能 cost × 添加等级），不含孔位与负面词条。固定防具的添加技能同样计入；相同 cost 按基础防御降序、总记录数升序排列。界面、Worker 返回顺序与条件分享均支持此选项。
+结果可按基础防御降序、炼化新增技能等级升序或降序、新增技能 cost 升序或降序排序。新增技能 cost 为五件防具炼化增加技能的正 cost 合计：每级按技能费用计算，包括给原生技能加等级；不计原生等级、孔位费用、属性变化或删除返还。cost 相同时优先显示基础防御较高的方案。这里的“新增技能等级”只计算防具炼化增加的技能等级，不含孔位、原生技能、护石或珠子。数量较多时每页8套，复制条件会保留这些新设置。
 
-0.4.2 将03区的上限文案改为“最多新增正面词条”，计数规则不变。指定护石的两个技能均可独立按中文／英文名称搜索；筛选不改变已选技能、等级和孔位。
+## 3. 分享网页条件：导入条件／复制条件
 
-0.4.3 护石技能和指定防具搜索参照武器选择：仍匹配时保留当前选择，否则自动选择第一个匹配项，列表不再保留不匹配的旧选项。无匹配时禁用保存；切换防具时清空编辑中的炼化。更改在保存前不影响已固定的装备。
+这两个按钮用于在网页或本地版之间分享武器、目标技能、固定装备、炼化上限和搜索选项。旧版条件仍可导入；分享不包含游戏 Mod 模板。
+
+- **复制条件**：复制配置 JSON；浏览器不允许复制时，会下载文件。
+- **导入条件**：粘贴 JSON、拖入 JSON 文件，或点击选择文件，再点击“应用条件”。
+- 原有“导出 JSON”保存网页格式的完整计算结果，也可以交给“导入条件”读取其中的搜索条件。
+
+这些网页格式文件不能直接交给游戏 Mod 加载。分享条件也不包含 Mod 模板。
+
+两个导入弹窗均支持文件拖拽和选择，每次一个 `.json` 文件，最大 2 MB。读取文件只会填入文本，仍需点击按钮应用。
+
+## 4. 把配装导入游戏：需要配装管理器 Mod
+
+本工具对接的是原帖中的 **配装管理器 Mod Ver1.1**：
+
+- 原帖：[《【MHRS】配装管理器MOD（一键配装）》](https://www.caimogu.cc/post/2330778.html)
+- 作用：把游戏中的个人组合保存为文件，并从文件加载回游戏，便于保存和分享配装。
+- 获取与安装：请前往原帖，按作者说明获取 Mod、安装前置并将文件解压到游戏根目录。本地包不附带该 Mod。
+
+### 第一步：在游戏中导出一份模板
+
+用 Mod 保存一套与目标武器**同类型**的配装，找到对应 JSON。它通常位于：
+
+```text
+MonsterHunterRise/reframework/data/EquipmentLoadouts/<武器类型>/
+```
+
+例如弓为 `Bow`，太刀为 `LongSword`，双刀为 `DualBlades`。
+
+### 第二步：在工房中导入模板
+
+点击“Mod 导入”，拖入或选择刚才的 JSON，也可以粘贴全文，然后选择：
+
+| 方式 | 会发生什么 |
+| --- | --- |
+| 模板导入 | 保存模板，并同步武器；保留当前目标技能和搜索选项 |
+| 全导入 | 保存模板、同步武器，并把原配装合计后的技能同步为目标技能；保留搜索选项 |
+
+模板用于保留花链、替换技、武器强化、解锁状态和百龙珠等附属配置。模板与最近的搜索条件保存在当前浏览器中；更换浏览器或打开方式后，不会自动同步。
+
+导入模板不会修改已经算出的旧方案。要用刚同步的武器重新配装，请再次点击“开始配装”。
+
+### 第三步：计算并导出 Mod 文件
+
+1. 计算出方案后，点击该方案的“Mod 导出”。
+2. 填写希望在 Mod 列表和游戏中显示的配装名称。
+3. 点击“保存 JSON”。名称会同步写入 `uiInfo.displayName` 和 `mySetInfo.Name`。
+4. 将下载文件放入对应武器类型目录；以网页下载后的提示为准。
+
+文件名沿用 Mod 的自动保存形式：`方案编号_62进制时间戳.json`。填写的显示名称不会替换这个文件名。
+
+### 第四步：回到游戏加载
+
+打开 Mod，点击“刷新列表”，找到配装并加载。
+
+**加载目标是游戏中的第一套个人组合。** 按原作者说明，默认加载可能销毁该组合关联的装备；首次使用请先备份存档，并给第一套个人组合留空。是否启用“保留装备”，请按原帖说明选择。
+
+## 5. 模板会保留哪些内容
+
+当前会保留模板的替换技、花链、猎虫及关联信息、装备锁定标记，以及武器炼化和解锁状态。百龙珠按模板实际装备的记录保留，并同步到装备和配装备份数据。
+
+导出武器仍以所选计算结果为准。同类换武器时，会检查模板已装备的强化条目是否适用、百龙孔是否放得下百龙珠；百龙孔扩张炼化也会计入检查。不满足时会提示更换模板或武器。
+
+防具、护石和普通珠子会按计算结果重新生成，因此模板不是整份原样复制：
+
+| 数据 | 当前处理 |
+| --- | --- |
+| 防具铠玉强化点数 | 同一件防具保留模板值；换成其他防具时归零 |
+| 防具炼化附属状态 | 按新方案重建，炼化计数与类型字段重置 |
+| 旧式百龙武器模型、百龙强化及历史记录 | 尚未完整保留，相关字段会重置 |
+| 弩枪改装 | 保留装备记录中的值；若模板备份记录不同，目前会统一为装备记录的值 |
+
+## 6. Mod 的选项为什么会影响加载结果
+
+Mod 会在读取 JSON 后执行自己的附加设置：
+
+| 选项 | 作用 |
+| --- | --- |
+| 保留装备 | 按作者说明控制加载时是否销毁原组合装备，并可能增加装备箱占用 |
+| 武器炼化词条解锁 | 在 Ver1.1 创建或补入 RARE 10 武器的对应分支中，额外启用并解锁预设强化项目；不自动选择所有强化词条 |
+| 防具强化等级“1级” | 将防具强化点数覆盖为 0 |
+| 防具强化等级“满级” | 将防具强化点数覆盖为 99999，由游戏处理对应强化等级 |
+
+不勾选额外武器解锁时，仍会恢复 JSON 已有的强化和解锁状态。防具强化两项均不勾选时，使用 JSON 中的强化点数。
+
+这些加载选项不会改写你手上的原 JSON；重新用 Mod 保存配装时，才会把游戏中的状态导出到文件。
+
+## 7. 配装范围与当前限制
+
+- 资料面向曙光最终内容版；固定武器，只按原生普通孔位进行技能配装。武器炼化、百龙珠和花链用于模板导出保留，不参与技能求解。
+- 每件防具最多七条内部炼化词条，cost 总和不超过预算。
+- 原生技能种类＋新增技能种类不超过五种；删除技能不释放原生种类名额。
+- 同件防具不能同时增加和删除同一技能；删除不得超过原生等级。
+- 允许删除未要求的原生技能，按实际词条返还 cost。
+- 检查最终状态，不验证防具随机生成顺序或种子可达性。
+- 风雷合一的额外加成在全导入时计入目标，但求解模型仍按基础技能搜索，可能偏保守。
+- 防御显示不含铠玉强化和保留的武器炼化效果，不是游戏最终面板防御；不计算伤害。
+- 当前版本已通过 42 项自动测试，覆盖离线求解、导入导出及模板保留；尚未进行实际游戏内导入验证。
+
+## 8. 致谢与资料来源
+
+感谢[配装管理器 Mod 原帖](https://www.caimogu.cc/post/2330778.html)的作者开发并分享配装保存、加载和分享工具。本工具根据作者公开说明及 Ver1.1 的 JSON 格式制作导入导出适配；网页配装模拟器与该 Mod 是两个独立工具。Mod 的下载、前置、更新、使用要求和发布条件均以原帖为准。感谢 Atlantis 一起测试脚本可用性并提出修改建议。
+
+也感谢以下项目和资料作者：
+
+- [MHRice](https://mhrise.mhrice.info/)：游戏数据和解析资料。
+- [MH Data Lab](https://mhdatalab.com/rise)：数据交叉核对与炼金规则资料。
+- dtlnor：护石与怪异炼化数据整理。
+- [HiGHS / highs-js](https://github.com/lovasoa/highs-js)：本地求解引擎，MIT 许可证见 `dist/vendor/LICENSE`。
+
+进一步技术说明见 `docs/technical-notes.md`。
+'''
+(OUT/'README.md').write_text(readme)
+zip_path=OUT/'sunbreak-forge-local.zip'
+with zipfile.ZipFile(zip_path,'w',zipfile.ZIP_DEFLATED,compresslevel=6) as z:
+    z.write(standalone,'SunbreakForge/SunbreakForge.html')
+    z.writestr('SunbreakForge/README.md',readme)
+    technical_readme=R/'README.md'
+    if not technical_readme.is_file():technical_readme=R/'docs/technical-notes.md'
+    z.write(technical_readme,'SunbreakForge/docs/technical-notes.md')
+    for name in ['start_local.py','start-windows.bat','start-macos.command','start-linux.sh','package.json','build_local.py']:
+        z.write(R/name,'SunbreakForge/'+name)
+    for p in sorted((R/'dist').rglob('*')):
+        if p.is_file():z.write(p,'SunbreakForge/'+p.relative_to(R).as_posix())
+    for p in sorted((R/'tests').glob('*')):
+        if p.is_file():z.write(p,'SunbreakForge/'+p.relative_to(R).as_posix())
+with zipfile.ZipFile(zip_path) as z:
+    assert z.testzip() is None
+    for name in z.namelist():
+        assert not any(v in name for v in ['.git/','.openai/','debug.lp'])
+        raw=z.read(name)
+        assert not private_host.search(raw),name
+        assert not project_id.search(raw),name
+print(json.dumps({'standalone':str(standalone),'html_bytes':standalone.stat().st_size,'zip':str(zip_path),'zip_bytes':zip_path.stat().st_size,'sha256':hashlib.sha256(zip_path.read_bytes()).hexdigest()},ensure_ascii=False))
