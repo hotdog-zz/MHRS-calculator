@@ -105,8 +105,8 @@ function charmGameId(data,charm){
 }
 function encodeAtoms(data,armor,atoms){
  const out=[];
- for(const a of atoms){const raw=data.atoms.find(v=>v.pool===armor.pool&&v.id===a.atomId),value=raw?.values.find(v=>v.value===a.value&&(a.valueIndex==null||v.value_index===a.valueIndex));if(!value)throw new Error('无法转换炼化数值');if(a.fallback){if(a.count!==1||out.length>6)throw new Error('防御兜底必须占末条');while(out.length<6)out.push(zero());}for(let n=0;n<a.count;n++)out.push({Id:a.atomId,SkillId:a.skillId==null?0:skillToGame(a.skillId),ValueIndex:value.value_index});}
- if(out.length>7)throw new Error('炼化词条超过七项');while(out.length<7)out.push(zero());return out;
+ for(const a of atoms){const raw=data.atoms.find(v=>v.pool===armor.pool&&v.id===a.atomId),value=raw?.values.find(v=>v.value===a.value&&(a.valueIndex==null||v.value_index===a.valueIndex));if(!value)throw new Error('无法转换炼化数值');if(a.fallback&&a.count!==1)throw new Error('防御兜底词条计数必须为1');for(let n=0;n<a.count;n++)out.push({Id:a.atomId,SkillId:a.skillId==null?0:skillToGame(a.skillId),ValueIndex:value.value_index});}
+ if(out.length>7)throw new Error('炼化词条超过七项');out.sort((a,b)=>a.Id-b.Id);while(out.length<7)out.push(zero());return out;
 }
 function clearAugment(item){item.CustomBuildup=Array.from({length:7},zero);item.CustomOpenIdArray=[];item.CustomBuildupType=0;item.CustomEnable=false;item.CustomCount=0;}
 function checkWeaponAugmentTransfer(data,source,target,item){
