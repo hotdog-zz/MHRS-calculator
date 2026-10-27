@@ -41,7 +41,7 @@ test('防御词条保留真实ValueIndex；重复技能炼化展开并补足七�
  const armor=data.armors.find(a=>a.id==='Head:502');
  const raw=data.atoms.find(a=>a.pool===armor.pool&&a.category===13&&a.values.length>1),v=raw.values[1];
  const out=M.encodeAtoms(data,armor,[{atomId:146,skillId:203,value:1,count:2},{atomId:raw.id,value:v.value,valueIndex:v.value_index,count:1}]);
- assert.equal(out.length,7);assert.deepEqual(out[0],{Id:146,SkillId:115,ValueIndex:0});assert.deepEqual(out[1],out[0]);assert.equal(out[2].ValueIndex,v.value_index);assert.equal(out[6].Id,0);
+ assert.equal(out.length,7);assert.equal(out[0].Id,raw.id);assert.equal(out[0].ValueIndex,v.value_index);assert.deepEqual(out[1],{Id:146,SkillId:115,ValueIndex:0});assert.deepEqual(out[2],out[1]);assert.equal(out[6].Id,0);
 });
 test('真实求解结果导出Mod后往返：技能与逐孔插法一致，模板不变',()=>{
  const original=JSON.stringify(template),out=M.exportLoadout(data,template,solution,request,E,{index:2,now:1792896000000,name:'寒气弓 · 日常狩猎'});
@@ -181,5 +181,17 @@ test('页面事件：条件与Mod文件拖入、两种导入、粘贴兼容及�
  elements.get('resultSort').value='skillCostAsc';elements.get('resultSort').onchange();assert.equal(vm.runInContext('found[0].skillAddCost',ctx),3);assert.match(elements.get('results').innerHTML,/新增技能cost/);
  elements.get('resultSort').value='skillCostDesc';elements.get('resultSort').onchange();assert.equal(vm.runInContext('found[0].skillAddCost',ctx),36);
  await elements.get('share').onclick();assert.equal(JSON.parse(clipboard).request.options.resultSort,'skillCostDesc');
+
+ // Sorting the visible list must not move the canonical fallback or change its summary.
+ const atoms=[[144,1,0,16],[124,2,1],[89,-2,1],[99,-2,1],[109,-2,1],[69,1,0],[76,12,2]].map(([atomId,value,valueIndex,skillId],i)=>({atomId,value,valueIndex,count:1,...(skillId==null?{}:{skillId}),...(i===6?{fallback:true}:{})}));
+ const piece=E.evaluateArmor(data,{...request,options:{...request.options,defenseFallback:true}},{id:'Head:502',atoms});
+ ctx.sortedDisplayResult={...solution,pieces:[piece,...solution.pieces.slice(1)]};const snapshot=JSON.stringify(ctx.sortedDisplayResult);
+ vm.runInContext('found=[sortedDisplayResult];activeRequest=fixtureRequest;renderResults();',ctx);
+ const rendered=elements.get('results').innerHTML,list=rendered.match(/<div class="augment-list">(.*?)<\/div>/)[1];
+ assert.ok(list.indexOf('防御 +1<')<list.indexOf('防御兜底 · 防御 +12'));
+ assert.ok(list.indexOf('防御兜底 · 防御 +12')<list.indexOf('火耐性'));
+ assert.ok(list.indexOf('冰耐性')<list.indexOf(data.skills.find(s=>s.id===16).name));
+ assert.match(rendered,/自由 6 \/ 6条 · 兜底前预算 10 → 0 · 末条防御 \+12/);
+ assert.equal(JSON.stringify(ctx.sortedDisplayResult),snapshot);
 
 });

@@ -26,7 +26,7 @@ test('模型逐预算选择补偿且防御优化包含末条，不增加技能�
  for(let budget=0;budget<=20;budget++){
   const d=fixture(budget);const request=q();request.options.augmentLimits={head:0};const {raw,result}=solve(d,request,true);assert.equal(raw.Status,'Optimal');const p=result.pieces.find(p=>p.part==='head'),e=E.fallbackEffect(d,6,budget);
   assert.equal(p.fallback.before,budget);assert.equal(p.fallback.after,budget-(e?.cost||0));assert.equal(p.finalDefense,100+(e?.value||0));assert.equal(p.skillAdds,0);assert.equal(p.additions,0);assert.equal(p.fallback.freeRecords,0);
-  if(e){assert.equal(p.atoms.at(-1).fallback,true);const encoded=M.encodeAtoms(d,p,p.atoms);assert.equal(encoded[6].Id,e.atomId);assert.ok(encoded.slice(0,6).every(a=>a.Id===0));}
+  if(e){assert.equal(p.atoms.at(-1).fallback,true);const encoded=M.encodeAtoms(d,p,p.atoms);assert.equal(encoded[0].Id,e.atomId);assert.ok(encoded.slice(1).every(a=>a.Id===0));}
  }
 });
 test('开启时最多六条自由效果，关闭时仍允许七条；禁用炼化不执行补偿',()=>{
@@ -54,7 +54,17 @@ test('防御兜底也参与抵消检测：自由防御-12加末条+12必须拒�
  const d=fixture(),request=q(),effect=E.fallbackEffect(d,6,15);delete effect.cost;
  assert.throws(()=>E.evaluateArmor(d,request,{id:'head',atoms:[{atomId:60,value:-12,valueIndex:0,count:1},effect]}),e=>e.code==='DEFENSE_CANCELLED');
 });
-test('真实数据搜索开启兜底，逐件验证及Mod导出往返保留第七条',async()=>{
+test('Mod导出将兜底按ID排到普通词条之间，保留ValueIndex、技能和原始兜底元数据',()=>{
+ const d=fixture(),request=q(),spec=[[144,1,0,16],[124,2,1],[69,1,0],[89,-2,1],[114,2,1],[104,2,1],[70,1,0]];
+ // Use a real cost-3 skill in the fixture so the full independent check applies.
+ d.skills.push({...data.skills.find(s=>s.id===16)});
+ d.atoms.push(...data.atoms.filter(a=>a.pool===6&&a.category===14));
+ const atoms=spec.map(([atomId,value,valueIndex,skillId],i)=>({atomId,value,valueIndex,count:1,...(skillId==null?{}:{skillId}),...(i===6?{fallback:true}:{})}));
+ const p=E.evaluateArmor(d,request,{id:'head',atoms}),before=JSON.stringify(p),encoded=M.encodeAtoms(d,p,p.atoms);
+ assert.deepEqual(encoded.map(a=>a.Id),[69,70,89,104,114,124,144]);assert.equal(encoded[6].SkillId,17);assert.equal(encoded[2].ValueIndex,1);
+ assert.equal(JSON.stringify(p),before);assert.equal(p.atoms.at(-1).fallback,true);assert.equal(p.fallback.before,2);assert.equal(p.fallback.after,0);assert.equal(p.fallback.effect.value,1);
+});
+test('真实数据搜索开启兜底，Mod导出按ID升序且保留兜底效果',async()=>{
  const request={weaponId:'LongSword:302',skills:[{id:0,level:7},{id:5,level:7},{id:6,level:3}],options:{sex:'MaleOnly',seconds:10,limit:1,defenseFallback:true}};
  const response=await E.search(data,request,highs);assert.equal(response.status,'feasible',JSON.stringify(response.attempts));const r=response.results[0];assert.ok(r.pieces.every(p=>!p.pool||(p.fallback.freeRecords<=6&&p.records<=7)));
  const template=JSON.parse(fs.readFileSync(path.resolve(__dirname,'mod-template.json')));const bow=data.weapons.find(w=>w.id===M.equipmentFromGame(template.inventoryList[0].IdVal));request.weaponId=bow.id;
@@ -62,6 +72,6 @@ test('真实数据搜索开启兜底，逐件验证及Mod导出往返保留第�
  const candidate={...r,weaponId:bow.id};candidate.decorations=[];
  const exportRequest={...request,skills:[{id:0,level:1}]};const verified=E.validateResult(data,exportRequest,candidate);
  const out=M.exportLoadout(data,template,verified,exportRequest,E,{index:1,name:'兜底验证'}).payload;
- verified.pieces.forEach((p,i)=>{if(p.fallback?.effect)assert.equal(out.inventoryList[i+1].CustomBuildup[6].Id,p.fallback.effect.atomId);});
+ verified.pieces.forEach((p,i)=>{const encoded=out.inventoryList[i+1].CustomBuildup,actual=encoded.filter(a=>a.Id);assert.deepEqual(actual.map(a=>a.Id),actual.map(a=>a.Id).sort((a,b)=>a-b));assert.deepEqual(encoded,M.encodeAtoms(data,p,p.atoms));if(p.fallback?.effect)assert.ok(actual.some(a=>a.Id===p.fallback.effect.atomId&&a.ValueIndex===p.fallback.effect.valueIndex));});
  M.parse(data,out);
 });
