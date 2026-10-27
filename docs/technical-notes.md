@@ -34,7 +34,7 @@ assert not project_id.search(html.encode())
 standalone=OUT/'SunbreakForge.html';standalone.write_text(html)
 readme='''# 曙光配装工房 · 本地版
 
-应用版本：0.4.4
+应用版本：0.4.6
 
 说明更新：2026-10-26
 
@@ -205,7 +205,7 @@ Mod 会在读取 JSON 后执行自己的附加设置：
 
 ## 8. 致谢与资料来源
 
-感谢[配装管理器 Mod 原帖](https://www.caimogu.cc/post/2330778.html)的作者开发并分享配装保存、加载和分享工具。本工具根据作者公开说明及 Ver1.1 的 JSON 格式制作导入导出适配；网页配装模拟器与该 Mod 是两个独立工具。Mod 的下载、前置、更新、使用要求和发布条件均以原帖为准。感谢 Atlantis 一起测试脚本可用性并提出修改建议。
+感谢[配装管理器 Mod 原帖](https://www.caimogu.cc/post/2330778.html)的作者开发并分享配装保存、加载和分享工具。本工具根据作者公开说明及 Ver1.1 的 JSON 格式制作导入导出适配；网页配装模拟器与该 Mod 是两个独立工具。Mod 的下载、前置、更新、使用要求和发布条件均以原帖为准。感谢 A尊 一起测试脚本可用性并提出修改建议。
 
 也感谢以下项目和资料作者：
 
@@ -238,3 +238,7 @@ with zipfile.ZipFile(zip_path) as z:
         assert not private_host.search(raw),name
         assert not project_id.search(raw),name
 print(json.dumps({'standalone':str(standalone),'html_bytes':standalone.stat().st_size,'zip':str(zip_path),'zip_bytes':zip_path.stat().st_size,'sha256':hashlib.sha256(zip_path.read_bytes()).hexdigest()},ensure_ascii=False))
+
+0.4.6 更新 `options.defenseFallback`，默认false。开启时自由记录≤6，按剩余预算R选择末条：R=0留空；R>0从Pool内专用兜底（70/71/72）与普通加防御（69/73/74/75/76）中选择cost≤R且cost最大的一个，同cost优先专用兜底，普通词条取最大有效防御值。只补一条，不迭代补齐预算。MILP用互斥预算区间同时选择补偿费用与防御，结果校验独立拆分验证；固定记录可推断补偿但不改变数值。Mod导出将补偿写入CustomBuildup[6]，中间空位补零。不模拟抵消重抽，不宣称严格生成可达。
+
+结果校验逐件检查全部防御炼化记录（含兜底）：存在防御记录且增减合计为0时拒绝，无防御记录时允许。搜索首次遇到抵消结果后，为对应防具补充约束并继续求解，保留该防具的其他合法炼化。固定防具与Mod导出使用同一校验。

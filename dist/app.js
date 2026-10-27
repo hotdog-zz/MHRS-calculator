@@ -9,7 +9,7 @@ function slotsHTML(slots,empty=true){return '<span class="slots">'+(empty?[...sl
 function save(){try{localStorage.setItem('sunbreak-forge-v1',JSON.stringify(state));}catch{}}
 function toast(text){$('toast').textContent=text;$('toast').classList.remove('hidden');setTimeout(()=>$('toast').classList.add('hidden'),2800);}
 function changed(){save();if(found.length&&!busy){$('statusMessage').classList.remove('hidden');$('statusMessage').textContent='搜索条件已更改。下方保留上次结果，点击“开始配装”更新。';}}
-function syncOptions(){for(const id of ['sex','rank','seconds','limit','searchMode','resultSort'])$(id).value=String(state.options[id]);for(const id of ['augment','deleteSkills','noCharm','fixedCharms'])$(id).checked=state.options[id];syncSearchMode();renderFixed();}
+function syncOptions(){for(const id of ['sex','rank','seconds','limit','searchMode','resultSort'])$(id).value=String(state.options[id]);for(const id of ['augment','deleteSkills','noCharm','fixedCharms','defenseFallback'])$(id).checked=state.options[id];syncSearchMode();renderFixed();}
 function renderWeapons(keep=true){
  const type=$('weaponType').value;const query=$('weaponSearch').value.trim().toLowerCase();const rarity=$('rarity').value;
  const weapons=data.weapons.filter(w=>w.type===type&&(rarity==='all'||w.rarity===+rarity)&&(!query||w.name.toLowerCase().includes(query)||w.nameEn.toLowerCase().includes(query)));
@@ -34,7 +34,7 @@ function renderPicker(){
  $('pickerCount').textContent='已选 '+state.skills.length+' 项技能 · 共 '+skills.length+' 项匹配';
 }
 function setBusy(value){
- busy=value;document.querySelectorAll('.controls input,.controls select,.controls button').forEach(x=>x.disabled=value);$('importMod').disabled=value;$('clearMod').disabled=value;$('solve').disabled=value;$('cancel').disabled=false;$('cancel').classList.toggle('hidden',!value);$('solve').querySelector('span').textContent=value?'正在寻找配装…':'开始配装';if(!value){renderTargets();$('deleteSkills').disabled=!$('augment').checked;syncSearchMode();}
+ busy=value;document.querySelectorAll('.controls input,.controls select,.controls button').forEach(x=>x.disabled=value);$('importMod').disabled=value;$('clearMod').disabled=value;$('solve').disabled=value;$('cancel').disabled=false;$('cancel').classList.toggle('hidden',!value);$('solve').querySelector('span').textContent=value?'正在寻找配装…':'开始配装';if(!value){renderTargets();$('deleteSkills').disabled=!$('augment').checked;$('defenseFallback').disabled=!$('augment').checked;syncSearchMode();}
 }
 function augmentedLabel(atom){
  const n=atom.value*atom.count;
@@ -53,8 +53,9 @@ function renderResult(r,index){
  for(const p of r.pieces){
   const score=r.scores?.[p.id];const native=p.skills.map(s=>esc(skill(s.skill_id).name)+' '+s.level).join(' / ');
   html+='<div class="equip-row"><div class="equip-line"><span class="equip-part">'+ForgeEngine.PART_NAMES[p.part]+'</span><div class="equip-content"><div class="equip-name">'+esc(p.name)+(activeRequest.options?.fixedArmors?.[p.part]?'<span class="fixed-badge">已固定</span>':'')+'</div><div class="equip-sub">'+native+'</div></div>'+slotsHTML(p.slots)+'</div>';
-  if(p.records)html+='<details open><summary><span class="budget"><span>炼化 '+p.records+' / 7条</span><span>cost '+p.cost+' / '+p.budget+'</span><span>新增 '+p.additions+' / '+(activeRequest.options?.augmentLimits?.[p.part]??7)+'条</span>'+(score?'<span>原生等效 '+(score.native+score.slot).toFixed(1)+'</span>':'')+'</span></summary><div class="augment-list">'+p.atoms.map(a=>'<span class="augment'+(a.value<0?' negative':'')+'">'+augmentedLabel(a)+'</span>').join('')+'</div></details>';
+  if(p.records)html+='<details open><summary><span class="budget"><span>炼化 '+p.records+' / 7条</span><span>cost '+p.cost+' / '+p.budget+'</span><span>新增 '+p.additions+' / '+(activeRequest.options?.augmentLimits?.[p.part]??7)+'条</span>'+(score?'<span>原生等效 '+(score.native+score.slot).toFixed(1)+'</span>':'')+'</span></summary><div class="augment-list">'+p.atoms.map(a=>'<span class="augment'+(a.value<0?' negative':'')+'">'+(a.fallback?'防御兜底 · ':'')+augmentedLabel(a)+'</span>').join('')+'</div></details>';
   else html+='<div class="aug-empty">无需炼化'+(score?' · 原生等效 '+(score.native+score.slot).toFixed(1):'')+'</div>';
+  if(p.fallback)html+='<div class="aug-empty">自由 '+p.fallback.freeRecords+' / 6条 · 兜底前预算 '+p.fallback.before+' → '+p.fallback.after+' · '+(p.fallback.effect?'末条防御 +'+p.fallback.effect.value:'末条留空，防御不变')+'</div>';
   html+='</div>';
  }
  html+='<div class="equip-row"><div class="equip-line"><span class="equip-part">护石</span><div class="equip-content"><div class="equip-name">'+esc(r.charm.name)+'</div><div class="equip-sub">'+r.charm.skills.map(s=>esc(skill(s.skill_id).name)+' '+s.level).join(' / ')+'</div>'+(r.charm.fixed?'<div class="equip-sub">特典条件：'+esc(r.charm.acquisition?.name||'根据存档确认')+'</div>':'')+'</div>'+slotsHTML(r.charm.slots)+'</div></div>';
@@ -271,7 +272,7 @@ async function init(){
 }
 $('weaponType').onchange=()=>{renderWeapons(false);changed();};$('rarity').onchange=()=>{renderWeapons();changed();};$('weaponSearch').oninput=()=>{renderWeapons();changed();};$('weaponSelect').onchange=()=>{renderWeapon();changed();};
 for(const id of ['sex','rank','seconds','limit','searchMode','resultSort'])$(id).onchange=()=>{state.options[id]=['seconds','limit'].includes(id)?+$(id).value:$(id).value;syncSearchMode();renderFixed();changed();};
-for(const id of ['augment','deleteSkills','noCharm','fixedCharms'])$(id).onchange=()=>{state.options[id]=$(id).checked;if(id==='augment')$('deleteSkills').disabled=!$(id).checked;if(id==='noCharm'&&$(id).checked){delete state.options.fixedCharm;renderFixed();}changed();};
+for(const id of ['augment','deleteSkills','noCharm','fixedCharms','defenseFallback'])$(id).onchange=()=>{state.options[id]=$(id).checked;if(id==='augment'){$('deleteSkills').disabled=!$(id).checked;$('defenseFallback').disabled=!$(id).checked;}if(id==='noCharm'&&$(id).checked){delete state.options.fixedCharm;renderFixed();}changed();};
 $('targetSkills').onclick=event=>{const remove=event.target.closest('[data-remove]');const level=event.target.closest('[data-level]');if(remove)state.skills=state.skills.filter(s=>s.id!==+remove.dataset.remove);else if(level){const r=state.skills.find(s=>s.id===+level.dataset.level);r.level=Math.max(1,Math.min(skill(r.id).max,r.level+ +level.dataset.delta));}else return;renderTargets();changed();};
 $('sortSkills').onclick=()=>{state.skills.sort(ForgeConfig.compareSkills);renderTargets();save();toast('已按等级降序、同级ID升序排列');};
 $('clearSkills').onclick=()=>{state.skills=[];renderTargets();changed();};$('preset').onclick=()=>{state.skills=[{id:0,level:7},{id:5,level:7},{id:7,level:3},{id:6,level:3},{id:205,level:1}];renderTargets();changed();toast('已载入通用物理目标');};
