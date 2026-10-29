@@ -42,7 +42,7 @@ test('固定记录可推断补偿，拒绝缺失/错误补偿及伪造标记，�
  assert.throws(()=>E.evaluateArmor(d,request,{id:'head',atoms:[atoms[0],{atomId:72,value:2,valueIndex:0,count:1,fallback:true}]}),/兜底冲突/);
  assert.throws(()=>E.evaluateArmor(d,request,{id:'head',atoms:[atoms[0],{atomId:76,value:8,valueIndex:0,count:1,fallback:true}]}),/兜底冲突/);
  assert.throws(()=>E.evaluateArmor(d,request,{id:'head',atoms:[{atomId:70,value:1,valueIndex:0,count:1}]}),/兜底冲突/);
- assert.throws(()=>E.evaluateArmor(d,request,{id:'head',atoms:[{atomId:72,value:2,valueIndex:0,count:2,fallback:true}]}),/兜底冲突/);
+ assert.throws(()=>E.evaluateArmor(d,request,{id:'head',atoms:[{atomId:72,value:2,valueIndex:0,count:2,fallback:true}]}),/最多出现1次/);
  request.options.fixedArmors={head:{id:'head',atoms}};E.validateRequest(d,request);const r=solve(d,request).result;assert.equal(r.pieces.find(p=>p.part==='head').fallback.before,13);
 });
 test('独立校验拒绝移除末条，旧配置默认关闭，条件分享保留开关与末条标记',()=>{

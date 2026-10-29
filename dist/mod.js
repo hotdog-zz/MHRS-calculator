@@ -1,6 +1,7 @@
 /* Adapter for EquipmentLoadoutsManager Ver1.1. No game code is executed. */
 (function(root){
 'use strict';
+const C=root.ForgeConfig||(typeof require==='function'?require('./config.js'):null);
 const WEAPONS={GreatSword:0x08100000,ShortSword:0x08200000,Hammer:0x08300000,Lance:0x08400000,LongSword:0x08500000,SlashAxe:0x08600000,GunLance:0x08700000,DualBlades:0x08800000,Horn:0x08900000,InsectGlaive:0x08a00000,ChargeAxe:0x08b00000,LightBowgun:0x08c00000,HeavyBowgun:0x08d00000,Bow:0x08e00000};
 const ARMORS={Head:0x0c100000,Chest:0x0c200000,Arm:0x0c300000,Waist:0x0c400000,Leg:0x0c500000};
 const MOD_TYPES={ShortSword:'SwordShield',SlashAxe:'SwitchAxe',Horn:'HuntingHorn',ChargeAxe:'ChargeBlade'};
@@ -80,6 +81,7 @@ function importInto(data,current,text,mode,engine){
  if(!['template','full'].includes(mode))throw new Error('请选择模板导入或全导入');
  const template=parse(data,text);let next=clone(current),loadout;
  next.weaponId=equipmentFromGame(template.inventoryList[0].IdVal);
+ next.rampageDecorationId=C.validateRampageId(data,template.backupList[0].HyakuryuDecoId);
  if(mode==='full'){loadout=readLoadout(data,template,engine);next.skills=loadout.skills;}
  return {template,state:next,loadout};
 }
@@ -116,21 +118,33 @@ function checkWeaponAugmentTransfer(data,source,target,item){
   if(atom.Id&&!support?.[atom.Id]?.includes(atom.ValueIndex))throw new Error('模板的武器强化条目 '+atom.Id+' 不适用于'+target.name+'，请导入这把武器的模板后再导出');
  }
 }
-function checkRampageTransfer(data,source,target,item,id){
- if(source.id===target.id||id===0||id===0x00100000)return;
+function rampageSlot(data,target,template){
+ let slot=target.rampageSlot||0;
+ if(!template)return slot;
+ const item=template.inventoryList[0],source=data.weapons.find(w=>equipmentToGame(w.id)===item.IdVal);
+ if(!source||source.type!==target.type)return slot;
+ try{checkWeaponAugmentTransfer(data,source,target,item);}catch{return slot;}
+ if(item.CustomEnable)for(const atom of item.CustomBuildup)slot+=data.weaponRampageGrowth?.[target.augmentTable]?.[atom.Id]?.[atom.ValueIndex]||0;
+ return Math.min(3,slot);
+}
+function checkRampageTransfer(data,source,target,item,id,strict=false){
+ if((!strict&&source.id===target.id)||id===0||id===0x00100000)return;
  const decoration=data.rampageDecorations?.find(d=>d.gameId===id);
  if(!decoration)throw new Error('无法识别模板百龙珠，请使用目标武器的模板');
  let growth=0;if(item.CustomEnable)for(const atom of item.CustomBuildup)growth+=data.weaponRampageGrowth?.[target.augmentTable]?.[atom.Id]?.[atom.ValueIndex]||0;
  const slot=Math.min(3,(target.rampageSlot||0)+growth);
- if(slot<decoration.slot)throw new Error(target.name+'的百龙孔为'+slot+'级，放不下模板的'+decoration.name+'；请更换模板或武器');
+ if(slot<decoration.slot)throw new Error(target.name+'的百龙孔为'+slot+'级，放不下'+decoration.name+'；请更换百龙珠、模板或武器');
 }
 function exportLoadout(data,template,result,request,engine,{index=1,now=Date.now(),name}={}){
+ if(result?.owned||request.options?.ownedOnly)throw new Error('已有装备方案必须使用专用的已有装备导出格式');
+ if(!Number.isInteger(index)||index<1||index>224)throw new Error('游戏装备组合栏位必须为1至224的整数');
  if(!template)throw new Error('请先粘贴导入一份同武器类型的Mod模板');
- const mod=parse(data,template),verified=engine.validateResult(data,request,result),weapon=data.weapons.find(w=>w.id===verified.weaponId),oldWeapon=data.weapons.find(w=>w.id===equipmentFromGame(mod.inventoryList[0].IdVal));
+ const validator=request.options?.presetEquipment?(root.ForgeInventory||(typeof require==='function'?require('./inventory.js'):null)).validatePreset:engine.validateResult;
+ const mod=parse(data,template),verified=validator(data,request,result),weapon=data.weapons.find(w=>w.id===verified.weaponId),oldWeapon=data.weapons.find(w=>w.id===equipmentFromGame(mod.inventoryList[0].IdVal));
  if(weapon.type!==oldWeapon.type)throw new Error('模板武器类型为'+oldWeapon.typeName+'，请导入'+weapon.typeName+'模板后再导出');
  checkWeaponAugmentTransfer(data,oldWeapon,weapon,mod.inventoryList[0]);
- const rampageId=mod.backupList[0].HyakuryuDecoId;
- checkRampageTransfer(data,oldWeapon,weapon,mod.inventoryList[0],rampageId);
+ const explicit=request.rampageDecorationId!==undefined,rampageId=explicit?C.validateRampageId(data,request.rampageDecorationId):mod.backupList[0].HyakuryuDecoId;
+ checkRampageTransfer(data,oldWeapon,weapon,mod.inventoryList[0],rampageId,explicit);
  const owners=[weapon.id,...PARTS.map(part=>verified.pieces.find(p=>p.part===part).id),null,'charm'];
  for(let i=0;i<8;i++){
   if(i===6)continue;
@@ -155,6 +169,6 @@ function exportLoadout(data,template,result,request,engine,{index=1,now=Date.now
  return {payload:mod,filename,directory:'reframework/data/EquipmentLoadouts/'+mod.uiInfo.weaponType+'/'};
 }
 function base62(n){const alphabet='0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz';let s='';do{s=alphabet[n%62]+s;n=Math.floor(n/62);}while(n>0);return s;}
-const api={parse,readLoadout,importInto,exportLoadout,skillToGame,skillFromGame,equipmentToGame,equipmentFromGame,decoToGame,decoFromGame,charmGameId,encodeAtoms,base62};
+const api={cleanItem,parse,readLoadout,importInto,exportLoadout,skillToGame,skillFromGame,equipmentToGame,equipmentFromGame,decoToGame,decoFromGame,charmGameId,encodeAtoms,base62,rampageSlot};
 if(typeof module!=='undefined'&&module.exports)module.exports=api;root.ForgeMod=api;
 })(globalThis);

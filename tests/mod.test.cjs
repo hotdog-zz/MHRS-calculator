@@ -4,7 +4,7 @@ const fs=require('node:fs');
 const path=require('node:path');
 const vm=require('node:vm');
 const M=require('../dist/mod.js'),E=require('../dist/engine.js'),C=require('../dist/config.js');
-const F=require('../dist/file-import.js');
+const F=require('../dist/file-import.js'),S=require('../dist/share.js');
 const data=require('../dist/data.json'),template=require('./mod-template.json');
 const state={weaponId:'LongSword:302',skills:[{id:0,level:7}],options:{sex:'MaleOnly',seconds:15,limit:1,deleteSkills:true,augment:true}};
 let solution,request;
@@ -22,7 +22,7 @@ test('游戏ID边界：零是空技能，MR技能与珠子使用不同偏移',()
 });
 test('模板导入同步武器并保留技能和搜索选项；分享条件不夹带模板内容',()=>{
  const before=JSON.stringify(state),imported=M.importInto(data,state,JSON.stringify(template),'template',E);
- assert.equal(imported.state.weaponId,'Bow:427');assert.deepEqual(imported.state.skills,state.skills);assert.deepEqual(imported.state.options,state.options);assert.equal(JSON.stringify(state),before);
+ assert.equal(imported.state.weaponId,'Bow:427');assert.equal(imported.state.rampageDecorationId,template.backupList[0].HyakuryuDecoId);assert.deepEqual(imported.state.skills,state.skills);assert.deepEqual(imported.state.options,state.options);assert.equal(JSON.stringify(state),before);
  assert.equal(imported.template.mySetInfo.Name,'测试模板');
  assert.ok(!JSON.stringify(C.payload(data,{...state,modTemplate:template})).includes('inventoryList'));
 });
@@ -88,6 +88,28 @@ test('空护石与固定特典可导出，孔位计数不沿用旧模板',()=>{
   assert.ok(out.inventoryList[7].TalismanSkillIdList.every(id=>id>=0));
  }
 });
+test('网页指定百龙珠覆盖模板并同步双份数据，明确空置与旧方案沿用互不混淆',()=>{
+ const before=JSON.stringify(template);
+ for(const id of [0,1048579,1048577]){
+  const q={...request,rampageDecorationId:id},out=M.exportLoadout(data,template,solution,q,E).payload;
+  assert.equal(out.inventoryList[0].HyakuryuDecoId,id);assert.equal(out.backupList[0].HyakuryuDecoId,id);
+  assert.deepEqual(M.importInto(data,state,out,'template',E).state.rampageDecorationId,id);
+ }
+ assert.equal(JSON.stringify(template),before);
+ assert.equal(M.exportLoadout(data,template,solution,request,E).payload.inventoryList[0].HyakuryuDecoId,template.backupList[0].HyakuryuDecoId);
+ assert.throws(()=>M.exportLoadout(data,template,solution,{...request,rampageDecorationId:999},E),/百龙珠ID无效/);
+ // Explicit selections are checked even when the template and result weapons are identical.
+ assert.throws(()=>M.exportLoadout(data,template,solution,{...request,rampageDecorationId:1048578},E),/百龙孔.*放不下/);
+});
+test('百龙孔选择计入模板扩孔、禁用强化与类型限制，导出复核实际孔位',()=>{
+ const weapon=data.weapons.find(w=>w.id==='Bow:304'),expanded=structuredClone(template);
+ expanded.inventoryList[0].CustomBuildup[1]={Id:47,SkillId:0,ValueIndex:0};
+ assert.equal(M.rampageSlot(data,weapon,null),1);assert.equal(M.rampageSlot(data,weapon,expanded),3);
+ const q={...request,weaponId:weapon.id,skills:[],rampageDecorationId:1048578},r={...solution,weaponId:weapon.id,decorations:[]};
+ const out=M.exportLoadout(data,expanded,r,q,E).payload;assert.equal(out.backupList[0].HyakuryuDecoId,1048578);
+ expanded.inventoryList[0].CustomEnable=false;assert.equal(M.rampageSlot(data,weapon,expanded),1);assert.throws(()=>M.exportLoadout(data,expanded,r,q,E),/放不下/);
+ const other=data.weapons.find(w=>w.id==='LongSword:302');assert.equal(M.rampageSlot(data,other,template),other.rampageSlot);
+});
 test('风雷合一全导入只给防具原生技能种类加一次，护石专有技能不加',()=>{
  const input=structuredClone(template),ids=['Head:334','Chest:334','Arm:334','Waist:334','Leg:334'];
  for(let i=0;i<5;i++){const item=input.inventoryList[i+1];item.IdVal=M.equipmentToGame(ids[i]);item.CustomEnable=false;item.CustomBuildup=[];input.backupList[i+1].IdVal=item.IdVal;}
@@ -122,7 +144,7 @@ test('页面事件：条件与Mod文件拖入、两种导入、粘贴兼容及�
   Object.defineProperty(el,'innerHTML',{get:()=>markup,set:text=>{markup=text;for(const [,childId] of text.matchAll(/\bid="([^"]+)"/g))if(!elements.has(childId))elements.set(childId,element(childId));if(id==='weaponSelect'||id==='weaponType')el.value=text.match(/<option value="([^"]+)"/)?.[1]||'';}});return el;
  }
  for(const [,id] of html.matchAll(/\bid="([^"]+)"/g))elements.set(id,element(id));
- const ctx={console,ForgeEngine:E,ForgeConfig:C,ForgeMod:M,ForgeFiles:F,URLSearchParams,TextDecoder,Uint8Array,Blob,location:{hash:''},setTimeout:()=>0,setInterval:()=>0,clearInterval:()=>{},fetch:async()=>({ok:true,json:async()=>data}),navigator:{clipboard:{writeText:async value=>{clipboard=value;}}},localStorage:{getItem:k=>storage.get(k)??null,setItem:(k,v)=>storage.set(k,v),removeItem:k=>storage.delete(k)},URL:{createObjectURL:blob=>{const url='blob:test'+blobs.size;blobs.set(url,blob);return url;},revokeObjectURL:()=>{}},document:{getElementById:id=>elements.get(id)||null,querySelectorAll:()=>[],createElement:()=>({click(){downloads.push({filename:this.download,blob:blobs.get(this.href)});}})}};
+ const ctx={console,ForgeEngine:E,ForgeInventory:require('../dist/inventory.js'),ForgeConfig:C,ForgeMod:M,ForgeFiles:F,ForgeShare:S,URLSearchParams,TextDecoder,Uint8Array,Blob,location:{hash:''},setTimeout:()=>0,setInterval:()=>0,clearInterval:()=>{},fetch:async()=>({ok:true,json:async()=>data}),navigator:{clipboard:{writeText:async value=>{clipboard=value;}}},localStorage:{getItem:k=>storage.get(k)??null,setItem:(k,v)=>storage.set(k,v),removeItem:k=>storage.delete(k)},URL:{createObjectURL:blob=>{const url='blob:test'+blobs.size;blobs.set(url,blob);return url;},revokeObjectURL:()=>{}},document:{getElementById:id=>elements.get(id)||null,querySelectorAll:()=>[],createElement:()=>({click(){downloads.push({filename:this.download,blob:blobs.get(this.href)});}})}};
  vm.createContext(ctx);vm.runInContext(fs.readFileSync(path.resolve(__dirname,'../dist/app.js'),'utf8'),ctx);await new Promise(resolve=>setImmediate(resolve));
  const getState=()=>JSON.parse(vm.runInContext('JSON.stringify(state)',ctx));
  assert.equal(elements.get('defenseFallback').checked,false);elements.get('defenseFallback').checked=true;elements.get('defenseFallback').onchange();assert.equal(getState().options.defenseFallback,true);elements.get('defenseFallback').checked=false;elements.get('defenseFallback').onchange();assert.equal(getState().options.defenseFallback,false);
@@ -131,14 +153,14 @@ test('页面事件：条件与Mod文件拖入、两种导入、粘贴兼容及�
  const initial=getState();elements.get('importMod').onclick();assert.equal(elements.get('modDialog').open,true);
  await elements.get('modDialog').ondrop(drop(template));assert.deepEqual(getState(),initial);assert.equal(elements.get('applyModFull').disabled,false);
  elements.get('applyModTemplate').onclick();assert.equal(getState().weaponId,'Bow:427');assert.deepEqual(getState().skills,initial.skills);assert.deepEqual(getState().options,initial.options);assert.equal(elements.get('weaponSelect').value,'Bow:427');assert.equal(JSON.parse(storage.get('sunbreak-forge-v1')).weaponId,'Bow:427');assert.ok(storage.has('sunbreak-forge-mod-template-v1'));
- await elements.get('share').onclick();assert.deepEqual(JSON.parse(clipboard).request,C.normalize(data,{...initial,weaponId:'Bow:427'}));assert.ok(!clipboard.includes('inventoryList'));
+ await elements.get('share').onclick();assert.deepEqual(JSON.parse(clipboard).request,C.normalize(data,{...initial,weaponId:'Bow:427',rampageDecorationId:template.backupList[0].HyakuryuDecoId}));assert.ok(!clipboard.includes('inventoryList'));
  elements.get('modText').value=JSON.stringify(template);elements.get('applyModFull').onclick();assert.equal(getState().weaponId,'Bow:427');assert.equal(getState().skills.length,24);
  ctx.fixtureSolution=solution;ctx.fixtureRequest=request;vm.runInContext('found=[fixtureSolution];activeRequest=fixtureRequest;',ctx);
  elements.get('results').onclick({target:{closest:selector=>selector==='[data-export-mod]'?{dataset:{exportMod:'0'}}:null}});
- assert.equal(downloads.length,0);assert.equal(elements.get('modExportDialog').open,true);assert.equal(elements.get('modExportName').value,'测试模板 · 1');
+ assert.equal(downloads.length,0);assert.equal(elements.get('modExportDialog').open,true);assert.equal(elements.get('modExportName').value,'测试模板 · 1');assert.equal(elements.get('ownedExportSlotWrap').classList.contains('hidden'),false);elements.get('ownedExportSlot').value='224';
  elements.get('modExportName').value='   ';elements.get('confirmModExport').onclick();assert.equal(downloads.length,0);assert.equal(elements.get('modExportDialog').open,true);assert.ok(elements.get('modExportError').textContent);
  elements.get('modExportName').value='  我的寒气弓 <一号>  ';elements.get('confirmModExport').onclick();
- assert.equal(downloads.length,1);assert.match(downloads[0].filename,/^1_[0-9A-Za-z]+\.json$/);const payload=JSON.parse(await downloads[0].blob.text());assert.equal(payload.uiInfo.weaponType,'Bow');assert.equal(payload.inventoryList.length,8);assert.equal(payload.uiInfo.displayName,'我的寒气弓 <一号>');assert.equal(payload.mySetInfo.Name,payload.uiInfo.displayName);assert.equal(elements.get('modExportDialog').open,false);
+ assert.equal(downloads.length,1);assert.match(downloads[0].filename,/^224_[0-9A-Za-z]+\.json$/);const payload=JSON.parse(await downloads[0].blob.text());assert.equal(payload.uiInfo.weaponType,'Bow');assert.equal(payload.inventoryList.length,8);assert.equal(payload.uiInfo.displayName,'我的寒气弓 <一号>');assert.equal(payload.mySetInfo.Name,payload.uiInfo.displayName);assert.equal(elements.get('modExportDialog').open,false);
  for(const key of ['CustomEnable','CustomBuildup','CustomOpenIdArray','CustomBuildupType','CustomCount'])assert.deepEqual(payload.inventoryList[0][key],template.inventoryList[0][key],key);
  assert.equal(payload.inventoryList[0].HyakuryuDecoId,template.backupList[0].HyakuryuDecoId);assert.equal(payload.backupList[0].HyakuryuDecoId,payload.inventoryList[0].HyakuryuDecoId);
  const prior=getState();elements.get('modText').value='{invalid';elements.get('applyModFull').onclick();assert.deepEqual(getState(),prior);assert.equal(elements.get('modDialog').open,false);assert.ok(elements.get('modError').textContent);
@@ -153,7 +175,15 @@ test('页面事件：条件与Mod文件拖入、两种导入、粘贴兼容及�
  elements.get('armorSearch').value=armorMatch.name;elements.get('armorSearch').oninput();assert.equal(elements.get('saveArmor').disabled,false);assert.equal(elements.get('armorSelect').value,armorMatch.id);
 
  vm.runInContext("armorEditor.id=fixtureSolution.pieces[0].id;armorEditor.atoms=JSON.parse(JSON.stringify(fixtureSolution.pieces[0].atoms));",ctx);
- elements.get('saveArmor').onclick();assert.equal(getState().options.fixedArmors.head.id,solution.pieces[0].id);assert.equal(elements.get('equipmentDialog').open,false);
+ assert.equal(elements.get('fixArmorAugment').checked,false);
+ elements.get('saveArmor').onclick();assert.equal(getState().options.fixedArmors.head.id,solution.pieces[0].id);assert.equal(getState().options.fixedArmors.head.atoms,undefined);assert.equal(elements.get('equipmentDialog').open,false);assert.match(elements.get('fixedEquipment').innerHTML,/炼化自动搜索/);
+ vm.runInContext("openArmor('head')",ctx);assert.equal(elements.get('fixArmorAugment').checked,false);
+ vm.runInContext('armorEditor.atoms=JSON.parse(JSON.stringify(fixtureSolution.pieces[0].atoms));',ctx);
+ elements.get('fixArmorAugment').checked=true;elements.get('fixArmorAugment').onchange();assert.match(elements.get('armorValidation').textContent,/校验通过/);
+ vm.runInContext('armorEditor.atoms=[{atomId:69,value:1,valueIndex:0,count:8}];',ctx);elements.get('fixArmorAugment').onchange();assert.match(elements.get('armorValidation').textContent,/计数非法/);elements.get('saveArmor').onclick();assert.equal(elements.get('equipmentDialog').open,true);assert.equal(getState().options.fixedArmors.head.atoms,undefined);
+ vm.runInContext('armorEditor.atoms=JSON.parse(JSON.stringify(fixtureSolution.pieces[0].atoms));',ctx);elements.get('fixArmorAugment').onchange();elements.get('saveArmor').onclick();assert.ok(Array.isArray(getState().options.fixedArmors.head.atoms));
+ vm.runInContext("openArmor('head')",ctx);assert.equal(elements.get('fixArmorAugment').checked,true);elements.get('equipmentDialog').close();
+ elements.get('fixedEquipment').onclick({target:{closest:selector=>selector==='[data-unlock-augment]'?{dataset:{unlockAugment:'head'}}:null}});assert.equal(getState().options.fixedArmors.head.id,solution.pieces[0].id);assert.equal(getState().options.fixedArmors.head.atoms,undefined);
  elements.get('fixedEquipment').onchange({target:{dataset:{augmentLimit:'head'},value:'0'}});assert.equal(getState().options.augmentLimits.head,0);
  elements.get('fixedEquipment').onchange({target:{dataset:{augmentLimit:'head'},value:'7'}});
  elements.get('fixedEquipment').onclick({target:{closest:selector=>selector==='[data-unlock-armor]'?{dataset:{unlockArmor:'head'}}:null}});assert.equal(getState().options.fixedArmors.head,undefined);
@@ -193,5 +223,67 @@ test('页面事件：条件与Mod文件拖入、两种导入、粘贴兼容及�
  assert.ok(list.indexOf('冰耐性')<list.indexOf(data.skills.find(s=>s.id===16).name));
  assert.match(rendered,/自由 6 \/ 6条 · 兜底前预算 10 → 0 · 末条防御 \+12/);
  assert.equal(JSON.stringify(ctx.sortedDisplayResult),snapshot);
+
+ // Template equipment and augmentation locks are independent, too.
+ ctx.fixtureLockTemplate=structuredClone(template);ctx.fixtureLockTemplate.inventoryList[1].CustomEnable=false;ctx.fixtureLockTemplate.inventoryList[1].IdVal=M.equipmentToGame('Head:502');ctx.fixtureLockTemplate.backupList[1].IdVal=ctx.fixtureLockTemplate.inventoryList[1].IdVal;
+ vm.runInContext('modTemplate=fixtureLockTemplate;openTemplateLocks();',ctx);assert.match(elements.get('templateLockChoices').innerHTML,/data-template-augment="head"/);
+ elements.get('templateLockChoices').querySelectorAll=()=>[{dataset:{templatePart:'head'}}];elements.get('applyTemplateLocks').onclick();
+ assert.deepEqual(getState().options.fixedArmors.head,{id:'Head:502'},elements.get('templateLocksError').textContent);
+ vm.runInContext('openTemplateLocks();',ctx);elements.get('templateLockChoices').querySelectorAll=()=>[{dataset:{templatePart:'head'}},{dataset:{templateAugment:'head'}}];elements.get('applyTemplateLocks').onclick();assert.deepEqual(getState().options.fixedArmors.head.atoms,[]);
+ const ordinaryIds=JSON.parse(vm.runInContext("JSON.stringify(atomChoices(data.armors.find(a=>a.id==='Head:502')).map(c=>c.atom.atomId))",ctx));assert.ok(!ordinaryIds.some(id=>[61,70,71,72].includes(id)));
+
+ // Importing a share code restores the actual result immediately and preserves the Mod template.
+ const shared=await S.encode(data,request,solution),savedTemplate=vm.runInContext('JSON.stringify(modTemplate)',ctx);
+ elements.get('importPlan').onclick();assert.equal(elements.get('planDialog').open,true);elements.get('planText').value=shared.token;await elements.get('applyPlan').onclick();
+ assert.equal(elements.get('planDialog').open,false);assert.equal(elements.get('resultCount').textContent,1);assert.equal(getState().weaponId,solution.weaponId);assert.equal(Object.keys(getState().options.fixedArmors).length,5);
+ assert.deepEqual(JSON.parse(vm.runInContext('JSON.stringify(found[0].placement)',ctx)),solution.placement);assert.equal(vm.runInContext('JSON.stringify(modTemplate)',ctx),savedTemplate);assert.match(elements.get('results').innerHTML,/data-share-image="0"/);
+ const importedState=getState();assert.equal(elements.get('rampageSelect').value,'-1');
+ elements.get('rampageSearch').value='护刃';elements.get('rampageSearch').oninput();assert.equal(getState().rampageDecorationId,1048579);assert.equal(elements.get('rampageSelect').value,'1048579');assert.ok(!elements.get('rampageSelect').innerHTML.includes('属痛'));
+ assert.equal(vm.runInContext('activeRequest.rampageDecorationId',ctx),1048579);assert.match(elements.get('results').innerHTML,/百龙珠：护刃龙珠/);
+ const newShare=await S.encode(data,JSON.parse(vm.runInContext('JSON.stringify(activeRequest)',ctx)),solution);assert.equal((await S.decode(data,newShare.token)).request.rampageDecorationId,1048579);
+ elements.get('rampageSearch').value='没有这个珠';elements.get('rampageSearch').oninput();assert.equal(elements.get('rampageSelect').disabled,true);assert.equal(getState().rampageDecorationId,1048579);
+ elements.get('rampageSearch').value='';elements.get('rampageSearch').oninput();assert.equal(getState().rampageDecorationId,1048579);elements.get('rampageSelect').value='0';elements.get('rampageSelect').onchange();assert.equal(getState().rampageDecorationId,0);assert.equal(vm.runInContext('activeRequest.rampageDecorationId',ctx),0);
+ // Switching to a smaller native hole clears the unavailable jewel, while old results retain theirs.
+ elements.get('rampageSelect').value=String(template.backupList[0].HyakuryuDecoId);elements.get('rampageSelect').onchange();elements.get('weaponSelect').value='Bow:304';elements.get('weaponSelect').onchange();assert.equal(getState().rampageDecorationId,0);assert.match(elements.get('toast').textContent,/已改为空置/);assert.equal(vm.runInContext('activeRequest.rampageDecorationId',ctx),template.backupList[0].HyakuryuDecoId);
+ elements.get('planText').value=shared.token;await elements.get('applyPlan').onclick();assert.deepEqual(getState(),importedState);
+ const beforeBadPlan=getState();elements.get('importPlan').onclick();elements.get('planText').value='SBF1:invalid';await elements.get('applyPlan').onclick();assert.equal(elements.get('planDialog').open,true);assert.deepEqual(getState(),beforeBadPlan);assert.ok(elements.get('planError').textContent);
+
+ // The share action snapshots the displayed result, previews PNG, downloads and copies its code.
+ elements.get('planDialog').close();ctx.ForgeShare={...S,renderImage:()=>({canvas:{toBlob:callback=>callback(new Blob(['png-test'],{type:'image/png'}))},width:1920,height:2600})};
+ const beforeImages=downloads.length;await vm.runInContext('shareResult(0)',ctx);assert.equal(elements.get('shareImageDialog').open,true);assert.equal(elements.get('downloadShareImage').disabled,false);assert.match(elements.get('sharePlanCode').value,/^SBF1:/);assert.match(elements.get('shareImagePreview').src,/^blob:/);
+ elements.get('downloadShareImage').onclick();assert.equal(downloads.length,beforeImages+1);assert.match(downloads.at(-1).filename,/^sunbreak-plan-[a-f0-9]{16}\.png$/);assert.equal(downloads.at(-1).blob.type,'image/png');await elements.get('copyPlanCode').onclick();assert.equal(clipboard,elements.get('sharePlanCode').value);
+ elements.get('shareImageDialog').onclose();assert.equal(elements.get('shareImagePreview').src,'');ctx.ForgeShare=S;
+ elements.get('importPlan').onclick();ctx.fixturePlanJson={name:'loadout.json',type:'application/json',size:100,text:async()=>JSON.stringify({...C.payload(data,request),result:solution})};await vm.runInContext('readPlanFile(fixturePlanJson)',ctx);assert.match(elements.get('planFileStatus').textContent,/已识别并校验/);await elements.get('applyPlan').onclick();assert.equal(elements.get('planDialog').open,false);
+
+ // Inventory page, owned mode, native JSON import and dedicated Mod export use actual instances.
+ const I=require('../dist/inventory.js'),inv=require('./inventory-fixture.cjs').fixture();
+ ctx.inventoryFileFixture={size:JSON.stringify(inv.raw).length,text:async()=>JSON.stringify(inv.raw)};
+ await vm.runInContext('importInventoryFile(inventoryFileFixture)',ctx);
+ elements.get('inventoryTab').onclick();assert.equal(elements.get('plannerPage').classList.contains('hidden'),true);assert.match(elements.get('inventorySummary').textContent,/防具 5/);assert.equal(elements.get('inventoryWeaponCount').textContent,'1');assert.equal(elements.get('inventoryArmorCount').textContent,'5');assert.equal(elements.get('inventoryCharmCount').textContent,'1');assert.equal(elements.get('inventoryConnection').textContent,'已载入本机库存');assert.match(elements.get('inventoryCategories').innerHTML,/data-inventory-kind="charm"/);
+ elements.get('inventoryKind').value='armor';elements.get('inventorySearch').value=inv.stock.entries.find(e=>e.kind==='armor').name;elements.get('inventorySearch').oninput();assert.equal((elements.get('inventoryList').innerHTML.match(/<article /g)||[]).length,1);assert.match(elements.get('inventoryList').innerHTML,/augment-list/);assert.match(elements.get('inventoryList').innerHTML,/既有炼化/);
+ elements.get('inventorySearch').value='';elements.get('inventoryCategories').onclick({target:{closest:()=>({dataset:{inventoryKind:'charm'}})}});assert.equal(elements.get('inventoryKind').value,'charm');assert.equal((elements.get('inventoryList').innerHTML.match(/<article /g)||[]).length,1);assert.match(elements.get('inventoryList').innerHTML,/实际孔位/);
+ elements.get('inventorySearch').value='不存在的装备名称';elements.get('inventorySearch').oninput();assert.match(elements.get('inventoryList').innerHTML,/没有找到符合条件/);elements.get('inventorySearch').value='';elements.get('inventorySearch').oninput();
+ elements.get('inventoryCategories').onclick({target:{closest:()=>({dataset:{inventoryKind:'weapon'}})}});assert.ok(!elements.get('inventorySort').innerHTML.includes('value="defense"'));assert.match(elements.get('inventorySort').innerHTML,/value="rarity"/);elements.get('inventorySort').value='rarity';elements.get('inventorySortDirection').value='desc';elements.get('inventorySortDirection').onchange();assert.equal(elements.get('inventorySortDirection').value,'desc');
+ elements.get('inventoryCategories').onclick({target:{closest:()=>({dataset:{inventoryKind:'armor'}})}});assert.match(elements.get('inventorySort').innerHTML,/value="defense"/);assert.match(elements.get('inventorySort').innerHTML,/value="rarity"/);
+ elements.get('useInventory').onclick();assert.equal(getState().options.ownedOnly,true);assert.equal(getState().ownedWeaponKey,'equipment:0');assert.ok(!elements.get('ownedWeaponSelect').innerHTML.includes('强化 0'));assert.match(elements.get('ownedWeaponSelect').innerHTML,/炼化/);assert.equal(elements.get('rampageSelect').disabled,true);assert.equal(elements.get('plannerPage').classList.contains('hidden'),false);
+ const ownedResult=I.validateResult(data,inv.stock,inv.q,{weaponId:inv.q.weaponId,decorations:[],owned:{version:1,inventoryId:inv.stock.id,weapon:I.reference(inv.stock.byKey.get('equipment:0')),armors:Object.fromEntries(inv.stock.entries.filter(e=>e.kind==='armor').map(e=>[e.base.part,I.reference(e)])),charm:I.reference(inv.stock.byKey.get('equipment:7'))}});
+ elements.get('importPlan').onclick();elements.get('planText').value=JSON.stringify({...C.payload(data,inv.q),result:ownedResult});await elements.get('applyPlan').onclick();assert.equal(elements.get('planDialog').open,false);assert.equal(getState().ownedArmorKeys.head,'equipment:1');assert.match(elements.get('results').innerHTML,/珠子库存校验通过/);assert.match(elements.get('results').innerHTML,/箱位 2/);
+ vm.runInContext('exportMod(0)',ctx);elements.get('ownedExportSlot').value='224';elements.get('modExportName').value='已有实例配装';elements.get('confirmModExport').onclick();assert.match(downloads.at(-1).filename,/^owned_224_/);const ownedPayload=JSON.parse(await downloads.at(-1).blob.text());assert.equal(ownedPayload.application,I.PLAN);assert.equal(ownedPayload.inventoryList,undefined);assert.equal(ownedPayload.references[1].index,1);
+ // Sharing an owned result yields a self-contained preset, readable after clearing local inventory.
+ ctx.ForgeShare={...S,renderImage:()=>({canvas:{toBlob:callback=>callback(new Blob(['owned-share'],{type:'image/png'}))},width:1920,height:2600})};await vm.runInContext('shareResult(0)',ctx);assert.equal(elements.get('downloadShareImage').disabled,false);const portable=await S.decode(data,elements.get('sharePlanCode').value);assert.equal(portable.request.options.ownedOnly,false);assert.equal(portable.result.owned,undefined);assert.deepEqual(portable.result.totals,ownedResult.totals);elements.get('shareImageDialog').onclose();ctx.ForgeShare=S;
+
+ // A condition from another inventory must not silently bind to matching box numbers.
+ const beforeForeign=getState(),foreign=C.payload(data,{...inv.q,ownedInventoryId:'SBFI1-Another-1'});
+ elements.get('importConfig').onclick();elements.get('configText').value=JSON.stringify(foreign);elements.get('applyConfig').onclick();
+ assert.equal(elements.get('configDialog').open,true);assert.match(elements.get('configError').textContent,/另一份库存/);assert.deepEqual(getState(),beforeForeign);
+ elements.get('configDialog').close();
+ // Restoring mismatched saved conditions leaves the original inventory identity intact and search disabled.
+ vm.runInContext("state.ownedInventoryId='SBFI1-Another-1';renderWeapons();setBusy(false);",ctx);
+ assert.equal(getState().ownedInventoryId,'SBFI1-Another-1');assert.equal(elements.get('solve').disabled,true);assert.match(elements.get('ownedWeaponSelect').innerHTML,/不匹配/);
+ ctx.validOwnedConditions=beforeForeign;vm.runInContext('state=ForgeConfig.normalize(data,validOwnedConditions);renderWeapons();',ctx);
+ elements.get('clearCharm').onclick();assert.equal(getState().ownedCharmKey,undefined);elements.get('clearInventory').onclick();await new Promise(resolve=>setImmediate(resolve));assert.equal(getState().options.ownedOnly,false);
+ elements.get('importPlan').onclick();elements.get('planText').value=portable.token;await elements.get('applyPlan').onclick();assert.equal(elements.get('planDialog').open,false);assert.equal(getState().options.ownedOnly,false);assert.equal(getState().options.presetEquipment,true);assert.equal(getState().ownedInventoryId,undefined);assert.match(elements.get('results').innerHTML,/预设装备/);
+ vm.runInContext('exportMod(0)',ctx);elements.get('ownedExportSlot').value='223';elements.get('confirmModExport').onclick();assert.match(downloads.at(-1).filename,/^223_/);const portableMod=JSON.parse(await downloads.at(-1).blob.text());assert.equal(portableMod.inventoryList.length,8);assert.equal(portableMod.references,undefined);
+
 
 });
