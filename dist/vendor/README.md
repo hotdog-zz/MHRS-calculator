@@ -393,3 +393,11 @@ declaration.
 The package major and minor version match the embedded HiGHS version. For
 example, `highs-js` 1.14.x contains HiGHS 1.14.x. Patch releases may contain
 JavaScript API fixes without changing the solver version.
+
+## Image sharing dependencies
+
+Bundled locally for both hosted and offline builds; no CDN requests at runtime.
+
+- qrcode-generator 1.4.4 — Kazuhiko Arase, MIT: https://github.com/kazuhikoarase/qrcode-generator ; source from the published npm tarball, `qrcode.js`, license in `qrcode-LICENSE`.
+- jsQR 1.4.0 — Cozmo, Apache-2.0: https://github.com/cozmo/jsQR ; source from the published npm tarball, `dist/jsQR.js`, license in `jsQR-LICENSE`.
+- lz-string 1.5.0 — Pieroxy, MIT: https://github.com/pieroxy/lz-string ; upstream `libs/lz-string.min.js`, license in `lz-string-LICENSE`.
