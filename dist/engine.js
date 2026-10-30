@@ -105,38 +105,57 @@ class LP{
 }
 function numericAttribute(atom){if(atom.category===13)return 'defense';const i=Math.floor((atom.id-89)/10);return ['fire','water','thunder','ice','dragon'][i];}
 function isDedicatedFallback(atom){return atom?.category===13&&[70,71,72].includes(atom.id);}
-function isOrdinaryAtom(atom){return !!atom&&!isDedicatedFallback(atom)&&atom.id!==61&&(atom.standardWeight==null||atom.standardWeight>0);}
-function fallbackEffect(data,pool,remaining){
+function isOrdinaryAtom(atom){return !!atom&&[13,14,19,20].includes(atom.category)&&!isDedicatedFallback(atom)&&atom.id!==61&&(atom.standardWeight==null||atom.standardWeight>0);}
+function orderedAtoms(data,armor,atoms,{introduceSkills=false}={}){
+ let expanded=atoms.flatMap(a=>Array.from({length:a.count},()=>({...a,count:1})));
+ if(introduceSkills){
+  const native=new Set(armor.skills.map(s=>s.skill_id)),seen=new Set(),first=[],rest=[];
+  const foreign=a=>a.skillId!=null&&a.value>0&&!native.has(a.skillId);
+  for(const a of expanded.filter(foreign)){if(seen.has(a.skillId))rest.push(a);else{seen.add(a.skillId);first.push(a);}}
+  const sequence=[...first,...rest];let i=0;expanded=expanded.map(a=>foreign(a)?sequence[i++]:a);
+ }
+ const key=a=>{const raw=data.atoms.find(v=>v.pool===armor.pool&&v.id===a.atomId);if(!raw)throw new Error('未知炼化词条');return [raw.category,raw.cost,a.value];};
+ return expanded.map((a,i)=>({a,i,k:key(a)})).sort((a,b)=>a.k[0]-b.k[0]||a.k[1]-b.k[1]||a.k[2]-b.k[2]||a.i-b.i).map(v=>v.a);
+}
+function fallbackSummary(f){if(!f)return '';if(f.effect)return '自由 '+f.freeRecords+' / 6条 · 兜底前预算 '+f.before+' → '+f.after+' · 末条防御 +'+f.effect.value;if(f.termination==='unaugmented')return '未炼化';return f.termination==='budget'?'记录 '+f.freeRecords+' / 7条 · 预算耗尽结束':'记录 '+f.freeRecords+' / 7条 · 剩余预算 '+f.after+' · 可连续失败结束';}
+function fallbackEffects(data,pool,remaining){
  if(!Number.isInteger(remaining)||remaining<0)throw new Error('防御兜底前预算非法');
- if(remaining===0)return null;
- // Extracted ordinary positive-DEF IDs: 69, 73–76; dedicated fallback: 70–72.
- const candidates=data.atoms.filter(a=>a.pool===pool&&a.category===13&&a.id>=69&&a.id<=76&&a.cost>0&&a.cost<=remaining).flatMap(a=>{
-  const values=a.values.filter(v=>v.value>0&&v.weight>0).sort((a,b)=>b.value-a.value||a.value_index-b.value_index);
-  return values.length?[{raw:a,value:values[0],dedicated:[70,71,72].includes(a.id)}]:[];
- }).sort((a,b)=>b.raw.cost-a.raw.cost||Number(b.dedicated)-Number(a.dedicated)||b.value.value-a.value.value||a.raw.id-b.raw.id);
- const chosen=candidates[0];if(!chosen)throw new Error('该炼化池缺少预算内的防御兜底候选');
- const {raw,value}=chosen;
- return {atomId:raw.id,value:value.value,valueIndex:value.value_index,attribute:'defense',count:1,fallback:true,cost:raw.cost};
+ if(remaining===0)return [];
+ // Keep source-table order on equal cost. Only the selected entry rolls values.
+ const raw=data.atoms.filter(a=>a.pool===pool&&a.category===13&&a.id>=69&&a.id<=76&&a.cost>0&&a.cost<=remaining).map((a,i)=>({a,i})).sort((a,b)=>b.a.cost-a.a.cost||a.i-b.i)[0]?.a;
+ if(!raw)throw new Error('该炼化池缺少预算内的防御兜底候选');
+ return raw.values.filter(v=>v.value>0&&v.weight>0).map(v=>({atomId:raw.id,value:v.value,valueIndex:v.value_index,attribute:'defense',count:1,fallback:true,cost:raw.cost})).sort((a,b)=>b.value-a.value||a.valueIndex-b.valueIndex);
+}
+function fallbackEffect(data,pool,remaining){return fallbackEffects(data,pool,remaining)[0]||null;}
+function canFailOrdinaryDraw(data,armor,atoms,remaining){
+ const pool=data.atoms.filter(a=>a.pool===armor.pool&&isOrdinaryAtom(a)&&[13,14,19,20].includes(a.category));
+ if(pool.some(a=>a.cost>remaining))return true;
+ const space=12-sum(armor.slots);
+ if(pool.some(a=>a.category===19&&a.values.some(v=>v.weight>0&&v.value>space)))return true;
+ const skillPool=pool.filter(a=>a.category===20),levels=nativeMap(armor),introduced=new Set();let capacity=armor.skills.length;
+ for(const a of atoms)if(a.skillId!=null){levels[a.skillId]=(levels[a.skillId]||0)+a.value*a.count;if(a.value>0&&!armor.skills.some(s=>s.skill_id===a.skillId)){introduced.add(a.skillId);capacity+=a.count;}}
+ if(skillPool.some(a=>a.cost<0)&&(!armor.skills.length||armor.skills.some(s=>!levels[s.skill_id])))return true;
+ return data.skills.some(s=>skillPool.some(a=>a.cost===s.cost&&a.cost>0)&&((levels[s.id]||0)>=s.max||(capacity>=5&&!armor.skills.some(v=>v.skill_id===s.id)&&!introduced.has(s.id))));
 }
 function splitFallback(data,armor,atoms,records,cost){
- const remaining=armor.budget-cost;
- const marked=atoms.some(a=>a.fallback===true);
- const dedicated=atoms.find(a=>isDedicatedFallback(data.atoms.find(v=>v.pool===armor.pool&&v.id===a.atomId)));
- if(!marked&&!dedicated&&records<=6&&remaining===0)return {atoms,freeRecords:records,before:remaining,after:remaining,effect:null};
- for(let i=0;i<atoms.length;i++){
-  const t=atoms[i];if(marked&&t.fallback!==true)continue;
-  if(dedicated&&t!==dedicated)continue;
-  const raw=data.atoms.find(a=>a.pool===armor.pool&&a.id===t.atomId);
-  if(raw?.category!==13||raw.cost<=0||t.count<1)continue;
-  if(marked&&(t.count!==1||atoms.filter(a=>a.fallback===true).length!==1))continue;
-  const before=remaining+raw.cost,expected=fallbackEffect(data,armor.pool,before);
-  if(!expected||expected.atomId!==t.atomId||expected.value!==t.value||expected.valueIndex!==t.valueIndex||records-1>6)continue;
-  const free=atoms.flatMap((a,j)=>j!==i?[{...a,fallback:false}]:a.count>1?[{...a,count:a.count-1,fallback:false}]:[]);
-  if(free.some(a=>!isOrdinaryAtom(data.atoms.find(v=>v.pool===armor.pool&&v.id===a.atomId))))continue;
-  const effect={...expected};delete effect.cost;
-  return {atoms:[...free,effect],freeRecords:records-1,before,after:remaining,effect};
+ const remaining=armor.budget-cost,marked=atoms.filter(a=>a.fallback===true),dedicated=atoms.find(a=>isDedicatedFallback(data.atoms.find(v=>v.pool===armor.pool&&v.id===a.atomId)));
+ if(records<7){
+  if(marked.length||dedicated)throw new Error('防御收尾只能在六条自由记录之后产生第七条');
+  if(records===0)return {atoms,freeRecords:0,before:remaining,after:remaining,effect:null,termination:'unaugmented'};
+  if(remaining===0)return {atoms,freeRecords:records,before:0,after:0,effect:null,termination:'budget'};
+  if(records<6&&canFailOrdinaryDraw(data,armor,atoms,remaining))return {atoms,freeRecords:records,before:remaining,after:remaining,effect:null,termination:'failed'};
+  throw new Error('炼化尚未满足结束条件：六条且有预算时必须防御收尾；短记录须预算耗尽或可连续失败结束');
  }
- throw new Error(PART_NAMES[armor.part]+'固定炼化与防御兜底冲突：须为最多6条自由词条＋对应末条补偿');
+ for(let i=0;i<atoms.length;i++){
+  const t=atoms[i];if(marked.length&&t.fallback!==true)continue;if(dedicated&&t!==dedicated)continue;
+  const raw=data.atoms.find(a=>a.pool===armor.pool&&a.id===t.atomId);if(raw?.category!==13||raw.cost<=0)continue;
+  const before=remaining+raw.cost,expected=fallbackEffects(data,armor.pool,before).find(e=>e.atomId===t.atomId&&e.value===t.value&&e.valueIndex===t.valueIndex);
+  if(!expected)continue;
+  const free=atoms.flatMap((a,j)=>j!==i?[{...a,fallback:false}]:a.count>1?[{...a,count:a.count-1,fallback:false}]:[]);
+  if(sum(free.map(a=>a.count))!==6||free.some(a=>!isOrdinaryAtom(data.atoms.find(v=>v.pool===armor.pool&&v.id===a.atomId))))continue;
+  const effect={...expected};delete effect.cost;return {atoms:[...free,effect],freeRecords:6,before,after:remaining,effect,termination:'full'};
+ }
+ throw new Error(PART_NAMES[armor.part]+'固定炼化与防御兜底冲突：七条结果须包含六条自由记录及正确的防御收尾');
 }
 function buildModel(data,request,armors,charms,excluded=[]){
  const lp=new LP(),skillIndex=new Map(data.skills.map(s=>[s.id,s]));
@@ -186,7 +205,7 @@ function buildModel(data,request,armors,charms,excluded=[]){
    }
   }
   const slotAtoms=active?pool.filter(v=>v.category===19):[];
-  const choices=[];let fallbackSelectors;const maxPoints=slotAtoms.length?12-sum(a.slots):0;
+  const choices=[];let fallbackSelectors,failureWitnesses;const maxPoints=slotAtoms.length?12-sum(a.slots):0;
   for(let p=0;p<=maxPoints;p++){
    const atoms=[];let remaining=p;
    for(const atom of [...slotAtoms].sort((a,b)=>b.values[0].value-a.values[0].value)){
@@ -200,20 +219,42 @@ function buildModel(data,request,armors,charms,excluded=[]){
   lp.constraint([...choices.map(c=>[1,c.n]),[-1,x]],'=',0);
   if((request.options?.augmentLimits?.[a.part]??7)<7)lp.constraint([...edits.filter(e=>e.sign>0).map(e=>[1,e.n]),...choices.map(c=>[c.atoms.length,c.n]),[-request.options.augmentLimits[a.part],x]],'<=',0);
   if(active&&options.defenseFallback){
-   lp.constraint([...rec,[-6,x]],'<=',0);
-   // R is the budget BEFORE compensation; its upper bound includes six refunds.
-   const upper=a.budget+6*Math.max(0,...pool.map(v=>-v.cost));
-   const thresholds=[0,...new Set(pool.filter(v=>v.category===13&&v.id>=69&&v.id<=76&&v.cost>0&&v.cost<=upper&&v.values.some(o=>o.value>0&&o.weight>0)).map(v=>v.cost))].sort((a,b)=>a-b);
-   const states=thresholds.map((lower,i)=>({lower,upper:lower===0?0:i+1<thresholds.length?thresholds[i+1]-1:upper,effect:fallbackEffect(data,a.pool,lower)}));
-   const selectors=states.map(state=>({...state,n:lp.variable('fallback',1,state.effect?1:0)}));fallbackSelectors=selectors;
-   lp.constraint([...selectors.map(v=>[1,v.n]),[-1,x]],'=',0);
+   const freeRec=[...rec],upper=a.budget+6*Math.max(0,...pool.map(v=>-v.cost));
    const remaining=[[a.budget,x],...cost.map(([c,n])=>[-c,n])];
+   const thresholds=[0,...new Set(pool.filter(v=>v.category===13&&v.id>=69&&v.id<=76&&v.cost>0&&v.cost<=upper&&v.values.some(o=>o.value>0&&o.weight>0)).map(v=>v.cost))].sort((a,b)=>a-b);
+   const states=[{kind:'budget',lower:0,upper:0,min:0,max:6,effect:null},{kind:'unaugmented',lower:a.budget,upper:a.budget,min:0,max:0,effect:null}];
+   if(upper>0)states.push({kind:'failed',lower:1,upper,min:0,max:5,effect:null});
+   for(let i=1;i<thresholds.length;i++)for(const effect of fallbackEffects(data,a.pool,thresholds[i]))states.push({kind:'full',lower:thresholds[i],upper:i+1<thresholds.length?thresholds[i+1]-1:upper,min:6,max:6,effect});
+   const selectors=states.map(state=>({...state,n:lp.variable('finish',1,state.effect?1:0)}));fallbackSelectors=selectors;
+   lp.constraint([...selectors.map(v=>[1,v.n]),[-1,x]],'=',0);
+   lp.constraint([...freeRec,...selectors.map(v=>[-v.min,v.n])],'>=',0);
+   lp.constraint([...freeRec,...selectors.map(v=>[-v.max,v.n])],'<=',0);
    lp.constraint([...remaining,...selectors.map(v=>[-v.lower,v.n])],'>=',0);
    lp.constraint([...remaining,...selectors.map(v=>[-v.upper,v.n])],'<=',0);
+   const failed=selectors.find(s=>s.kind==='failed');failureWitnesses=[];
+   if(failed){
+    const ordinary=pool.filter(isOrdinaryAtom),skillPool=ordinary.filter(v=>v.category===20),space=12-sum(a.slots);
+    const hasSkill=s=>skillPool.some(v=>v.cost===s.cost&&v.cost>0);
+    const always=ordinary.some(v=>v.category===19&&v.values.some(o=>o.weight>0&&o.value>space))||skillPool.some(v=>v.cost<0)&&!a.skills.length||a.skills.some(s=>hasSkill(skillIndex.get(s.skill_id))&&s.level>=skillIndex.get(s.skill_id).max&&!edits.some(e=>e.skill===s.skill_id&&e.sign<0))||a.skills.length>=5&&skillPool.some(v=>v.cost>0);
+    const witness=(label,terms,threshold,test)=>{const n=lp.variable('fail_'+label);lp.constraint([[1,n],[-1,failed.n]],'<=',0);lp.constraint([...terms,[-threshold,n]],'>=',0);failureWitnesses.push({n,test});};
+    if(!always){
+     const maxCost=Math.max(0,...ordinary.filter(v=>[13,14,19,20].includes(v.category)).map(v=>v.cost));
+     if(maxCost>0){const n=lp.variable('fail_budget');lp.constraint([[1,n],[-1,failed.n]],'<=',0);lp.constraint([...remaining,[upper,n]],'<=',upper+maxCost-1);failureWitnesses.push({n,test:p=>p.budget-p.cost<maxCost});}
+     for(const s of a.skills)if(hasSkill(skillIndex.get(s.skill_id))&&s.level>=skillIndex.get(s.skill_id).max){
+      const del=edits.find(e=>e.skill===s.skill_id&&e.sign<0);if(del){const n=lp.variable('fail_native_max');lp.constraint([[1,n],[-1,failed.n]],'<=',0);lp.constraint([[1,del.n],[s.level,n]],'<=',s.level);failureWitnesses.push({n,test:p=>(p.levels[s.skill_id]||0)>=skillIndex.get(s.skill_id).max});}
+     }
+     for(const e of edits){
+      if(e.sign<0)witness('deleted',[[1,e.n]],native[e.skill],p=>!(p.levels[e.skill]||0));
+      else {const threshold=skillIndex.get(e.skill).max-(native[e.skill]||0);if(threshold>0)witness('max',[[1,e.n]],threshold,p=>(p.levels[e.skill]||0)>=skillIndex.get(e.skill).max);}
+     }
+     if(skillPool.some(v=>v.cost>0)&&a.skills.length<5)witness('capacity',edits.filter(e=>e.sign>0&&!native[e.skill]).map(e=>[1,e.n]),5-a.skills.length,p=>a.skills.length+sum(p.atoms.filter(t=>t.skillId!=null&&t.value>0&&!native[t.skillId]).map(t=>t.count))>=5);
+     lp.constraint([[1,failed.n],...failureWitnesses.map(v=>[-1,v.n])],'<=',0);
+    }
+   }
    for(const v of selectors)if(v.effect){const e=v.effect;rec.push([1,v.n]);cost.push([e.cost,v.n]);def.push([e.value,v.n]);numeric.push({n:v.n,atom:e.atomId,value:e.value,valueIndex:e.valueIndex,attribute:'defense',fallback:true});}
   }
   lp.constraint([...rec,[-7,x]],'<=',0);lp.constraint([...cost,[-a.budget,x]],'<=',0);lp.constraint(def,'>=',0);
-  pieces.push({x,a,edits,numeric,choices,fallbackSelectors});
+  pieces.push({x,a,edits,numeric,choices,fallbackSelectors,failureWitnesses});
  }
  for(const part of PARTS)lp.constraint(pieces.filter(p=>p.a.part===part).map(p=>[1,p.x]),'=',1);
  const charmVars=charms.map(c=>{
@@ -287,7 +328,7 @@ function modelSeed(data,model,result){
   const points=sum(piece.atoms.filter(a=>data.atoms.find(v=>v.pool===piece.pool&&v.id===a.atomId)?.category===19).map(a=>a.value*a.count));
   const choice=p.choices.find(c=>c.points===points);if(!choice)return null;set(choice.n,1);
   for(const e of p.numeric){const count=sum(piece.atoms.filter(a=>a.atomId===e.atom&&a.value===e.value&&(a.valueIndex??0)===(e.valueIndex??0)&&!!a.fallback===!!e.fallback).map(a=>a.count));set(e.n,count);}
-  if(p.fallbackSelectors){const before=piece.fallback?.before;if(before==null)return null;const state=p.fallbackSelectors.find(s=>before>=s.lower&&before<=s.upper);if(!state)return null;set(state.n,1);}
+  if(p.fallbackSelectors){const f=piece.fallback;if(!f)return null;const state=p.fallbackSelectors.find(s=>s.kind===f.termination&&f.before>=s.lower&&f.before<=s.upper&&(!f.effect?!s.effect:s.effect?.atomId===f.effect.atomId&&s.effect?.valueIndex===f.effect.valueIndex));if(!state)return null;set(state.n,1);if(state.kind==='failed')for(const w of p.failureWitnesses||[])set(w.n,w.test(piece)?1:0);}
   if(p.defenseCancellationVars){const net=piece.finalDefense-piece.defense,has=piece.atoms.some(a=>data.atoms.find(v=>v.pool===piece.pool&&v.id===a.atomId)?.category===13);set(p.defenseCancellationVars.has,has?1:0);set(p.defenseCancellationVars.positive,has&&net>0?1:0);}
  }
  const charm=model.charms.find(c=>charmSignature(c.c)===charmSignature(result.charm));if(!charm)return null;set(charm.n,1);
@@ -363,7 +404,7 @@ function evaluateArmor(data,request,piece){
   if(dedicatedCount>1)throw new Error('专用防御兜底词条70／71／72合计最多出现1次');
   if(marked.length>1||marked.some(t=>t.count!==1))throw new Error('防御兜底只能标记1条且数量必须为1');
   if(!request.options?.defenseFallback&&(dedicatedCount||marked.length))throw new Error('专用词条或兜底标记需要开启执行防御兜底；也可解除固定炼化');
-  let records=0,cost=0,points=0,def=a.defense,defenseRecords=0;const res={...a.resistances};const levels=nativeMap(a),signs=new Map(),removed={},added=new Set();
+  let records=0,cost=0,points=0,def=a.defense,defenseRecords=0;const resistanceGroups=new Map();const res={...a.resistances};const levels=nativeMap(a),signs=new Map(),removed={},added=new Set();
   for(const atom of piece.atoms){
    if(!Number.isInteger(atom.count)||atom.count<1)throw new Error('炼化词条计数非法');
    const raw=data.atoms.find(v=>v.pool===a.pool&&v.id===atom.atomId);if(!raw||!a.pool)throw new Error('词条不在装备炼化池中');
@@ -377,20 +418,20 @@ function evaluateArmor(data,request,piece){
     levels[atom.skillId]=(levels[atom.skillId]||0)+atom.value*atom.count;
     if(atom.value<0){if(request.options?.deleteSkills===false)throw new Error('已禁止技能删除');removed[atom.skillId]=(removed[atom.skillId]||0)+atom.count;}
     else if(!a.skills.some(s=>s.skill_id===atom.skillId))added.add(atom.skillId);
-   }else if(raw.category===19){if(!raw.values.some(v=>v.value===atom.value))throw new Error('孔位词条数值非法');points+=atom.value*atom.count;}
+   }else if(raw.category===19){if(!raw.values.some(v=>v.value===atom.value)||atom.value>12-sum(a.slots))throw new Error('单条孔位增长超过该防具原始孔位容量');points+=atom.value*atom.count;}
    else if(raw.category===13||raw.category===14){
     if(!raw.values.some(v=>v.value===atom.value&&v.value_index===atom.valueIndex))throw new Error('防御/耐性变化不在有效数值表中');
-    const attribute=numericAttribute(raw);if(raw.category===13){def+=atom.value*atom.count;defenseRecords+=atom.count;}else res[attribute]+=atom.value*atom.count;
+    const attribute=numericAttribute(raw);if(raw.category===13){def+=atom.value*atom.count;defenseRecords+=atom.count;}else {res[attribute]+=atom.value*atom.count;const key=raw.category+':'+attribute;resistanceGroups.set(key,(resistanceGroups.get(key)||0)+atom.value*atom.count);}
    }else throw new Error('当前结果含未支持的词条类别');
   }
   if(records>7||cost>a.budget||def<0)throw new Error('炼化条数、cost或防御下界非法');
-  if(points>12-sum(a.slots))throw new Error('孔位增长超过该防具剩余的孔位容量');
+  if([...resistanceGroups.values()].some(v=>v===0))throw new Error('同类别同属性的耐性记录合计为0，须移除抵消记录并重新计算');
   if(defenseRecords&&def===a.defense){const error=new Error(PART_NAMES[a.part]+'防御炼化词条之和为0，正负防御不能完全抵消');error.code='DEFENSE_CANCELLED';error.armorId=a.id;throw error;}
   if(a.skills.length+added.size>5)throw new Error('原生技能种类＋新增技能种类超过5');
   for(const [id,lv] of Object.entries(removed))if(lv>(nativeMap(a)[id]||0))throw new Error('删除超过原生技能等级');
   for(const [id,lv] of Object.entries(levels)){if(lv<0||lv>skillIndex.get(+id).max)throw new Error('单件技能等级越界');}
   const fallback=request.options?.defenseFallback&&request.options?.augment!==false&&a.pool>0?splitFallback(data,a,piece.atoms,records,cost):null;
-  const finalAtoms=fallback?.atoms||piece.atoms;
+  const finalAtoms=orderedAtoms(data,a,fallback?.atoms||piece.atoms,{introduceSkills:true});
   const slots=upgradeSlots(a.slots,points);
   const skillAdds=sum(piece.atoms.filter(t=>data.atoms.find(v=>v.pool===a.pool&&v.id===t.atomId)?.category===20&&t.value>0).map(t=>t.count));
   const skillAddCost=sum(piece.atoms.filter(t=>data.atoms.find(v=>v.pool===a.pool&&v.id===t.atomId)?.category===20&&t.value>0).map(t=>t.count*skillIndex.get(t.skillId).cost));
@@ -537,6 +578,6 @@ async function search(data,request,highs,progress=()=>{},execution={}){
   note:'双Worker互补候选搜索；限时模式持续优化所选指标，超时不排除未证明最优的组合。所有结果独立校验。时限内不保证全局最优。风雷合一额外加成未计入。'};
 }
 
-const api={isDedicatedFallback,isOrdinaryAtom,validateArmorSelection,PARTS,PART_NAMES,METHOD_NAMES,upgradeSlots,caps,ordinarySlotShapes,generateCharms,equivalentScore,buildModel,reconstruct,validateResult,validateCharm,validateRequest,packDecorations,fallbackEffect,splitFallback,applySearchObjective,resultIdentity,validateRestrictions,evaluateArmor,atomSignature,charmSignature,compareResults,search};
+const api={fallbackSummary,orderedAtoms,fallbackEffects,canFailOrdinaryDraw,isDedicatedFallback,isOrdinaryAtom,validateArmorSelection,PARTS,PART_NAMES,METHOD_NAMES,upgradeSlots,caps,ordinarySlotShapes,generateCharms,equivalentScore,buildModel,reconstruct,validateResult,validateCharm,validateRequest,packDecorations,fallbackEffect,splitFallback,applySearchObjective,resultIdentity,validateRestrictions,evaluateArmor,atomSignature,charmSignature,compareResults,search};
 if(typeof module!=='undefined'&&module.exports)module.exports=api;root.ForgeEngine=api;
 })(globalThis);

@@ -77,10 +77,10 @@ function renderResult(r,index){
  for(const p of r.pieces){
   const score=r.scores?.[p.id];const native=p.skills.map(s=>esc(skill(s.skill_id).name)+' '+s.level).join(' / ');
   html+='<div class="equip-row"><div class="equip-line"><span class="equip-part">'+ForgeEngine.PART_NAMES[p.part]+'</span><div class="equip-content"><div class="equip-name">'+esc(p.name)+(p.ownedRef?'<span class="fixed-badge">箱位 '+(p.ownedRef.index+1)+'</span>':'')+(activeRequest.options?.fixedArmors?.[p.part]?'<span class="fixed-badge">已固定</span>':'')+'</div><div class="equip-sub">'+native+'</div></div>'+slotsHTML(p.slots)+'</div>';
-  if((p.owned||p.preset)&&p.records)html+='<div class="augment-list">'+p.atoms.slice().sort((a,b)=>a.atomId-b.atomId).map(a=>'<span class="augment'+(a.value<0?' negative':'')+'">'+augmentedLabel(a)+'</span>').join('')+'</div>';
-  else if(p.records)html+='<details open><summary><span class="budget"><span>炼化 '+p.records+' / 7条</span><span>cost '+p.cost+' / '+p.budget+'</span><span>新增 '+p.additions+' / '+(activeRequest.options?.augmentLimits?.[p.part]??7)+'条</span>'+(score?'<span>原生等效 '+(score.native+score.slot).toFixed(1)+'</span>':'')+'</span></summary><div class="augment-list">'+[...p.atoms].sort((a,b)=>a.atomId-b.atomId).map(a=>'<span class="augment'+(a.value<0?' negative':'')+'">'+(a.fallback?'防御兜底 · ':'')+augmentedLabel(a)+'</span>').join('')+'</div></details>';
+  if((p.owned||p.preset)&&p.records)html+='<div class="augment-list">'+ForgeEngine.orderedAtoms(data,p,p.atoms).map(a=>'<span class="augment'+(a.value<0?' negative':'')+'">'+augmentedLabel(a)+'</span>').join('')+'</div>';
+  else if(p.records)html+='<details open><summary><span class="budget"><span>炼化 '+p.records+' / 7条</span><span>cost '+p.cost+' / '+p.budget+'</span><span>新增 '+p.additions+' / '+(activeRequest.options?.augmentLimits?.[p.part]??7)+'条</span>'+(score?'<span>原生等效 '+(score.native+score.slot).toFixed(1)+'</span>':'')+'</span></summary><div class="augment-list">'+ForgeEngine.orderedAtoms(data,p,p.atoms).map(a=>'<span class="augment'+(a.value<0?' negative':'')+'">'+(a.fallback?'防御兜底 · ':'')+augmentedLabel(a)+'</span>').join('')+'</div></details>';
   else html+='<div class="aug-empty">无需炼化'+(score?' · 原生等效 '+(score.native+score.slot).toFixed(1):'')+'</div>';
-  if(p.fallback)html+='<div class="aug-empty">自由 '+p.fallback.freeRecords+' / 6条 · 兜底前预算 '+p.fallback.before+' → '+p.fallback.after+' · '+(p.fallback.effect?'末条防御 +'+p.fallback.effect.value:'末条留空，防御不变')+'</div>';
+  if(p.fallback)html+='<div class="aug-empty">'+ForgeEngine.fallbackSummary(p.fallback)+'</div>';
   html+='</div>';
  }
  html+='<div class="equip-row"><div class="equip-line"><span class="equip-part">护石</span><div class="equip-content"><div class="equip-name">'+esc(r.charm.name)+'</div><div class="equip-sub">'+r.charm.skills.map(s=>esc(skill(s.skill_id).name)+' '+s.level).join(' / ')+'</div>'+(r.charm.fixed?'<div class="equip-sub">特典条件：'+esc(r.charm.acquisition?.name||'根据存档确认')+'</div>':'')+'</div>'+slotsHTML(r.charm.slots)+'</div></div>';
@@ -372,7 +372,7 @@ function inventoryCard(entry){
  else if(e.kind==='weapon')html+='<div class="inventory-card-stats"><span>'+esc(e.base.typeName)+'</span><span>RARE '+e.base.rarity+'</span>'+slotsHTML(e.base.slots)+'</div>';
  else if(e.kind==='charm'&&e.charm)html+='<div class="inventory-card-stats"><span>实际孔位</span>'+slotsHTML(e.charm.slots)+'</div>';
  html+=inventorySkillsHTML(e);
- if(e.armor)html+='<details open><summary>既有炼化 · '+e.armor.records+' 条</summary><div class="augment-list">'+(e.armor.atoms.length?e.armor.atoms.slice().sort((a,b)=>a.atomId-b.atomId).map(a=>'<span class="augment'+(a.value<0?' negative':'')+'">'+augmentedLabel(a)+'</span>').join(''):'<span class="muted small">无炼化词条</span>')+'</div></details>';
+ if(e.armor)html+='<details open><summary>既有炼化 · '+e.armor.records+' 条</summary><div class="augment-list">'+(e.armor.atoms.length?ForgeEngine.orderedAtoms(data,e.armor,e.armor.atoms).map(a=>'<span class="augment'+(a.value<0?' negative':'')+'">'+augmentedLabel(a)+'</span>').join(''):'<span class="muted small">无炼化词条</span>')+'</div></details>';
  if(e.kind==='weapon')html+='<p class="inventory-card-foot">按原生普通孔位配装；实际强化、解锁状态和百龙珠原样保留。</p>';
  if(e.error)html+='<p class="error">暂不参与求解：'+esc(e.error)+'</p>';
  else if(!e.usable&&!isDeco)html+='<p class="inventory-card-foot">保留库存记录，在需要时作为已有附件引用。</p>';
