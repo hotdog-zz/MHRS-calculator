@@ -29,7 +29,7 @@ function lockedRequest(data,request,result){
 }
 function pack(data,request,result){
  const preset=request.options?.ownedOnly||request.options?.presetEquipment||result.owned;const shared=preset?I.shareable(data,request,result):null,q=shared?.request||C.normalize(data,request);if(!preset)E.validateRequest(data,q);const r=shared?.result||E.validateResult(data,q,result),o=q.options;
- const armors=E.PARTS.map(part=>{const p=r.pieces.find(p=>p.part===part);return [p.id,[...p.atoms].sort((a,b)=>a.atomId-b.atomId||(a.skillId??-1)-(b.skillId??-1)||(a.valueIndex??0)-(b.valueIndex??0)||Number(!!a.fallback)-Number(!!b.fallback)).map(a=>{
+ const armors=E.PARTS.map(part=>{const p=r.pieces.find(p=>p.part===part);return [p.id,E.orderedAtoms(data,p,p.atoms).map(a=>{
   const raw=data.atoms.find(v=>v.pool===p.pool&&v.id===a.atomId),v=raw.values.find(v=>v.value===a.value&&(a.valueIndex==null||v.value_index===a.valueIndex));
   return [a.atomId,a.skillId??-1,v.value_index,a.count,a.fallback?1:0];
  })];});
@@ -149,9 +149,9 @@ function renderImage(data,shared,createCanvas=newCanvas){
   card.height=card.bodyY+card.bodyH+card.summaryRows.length*29+21;return card;
  }
  const cards=r.pieces.map(p=>layoutCard({owner:p.id,title:E.PART_NAMES[p.part]+' · '+p.name,stats:'孔位 '+(p.slots.join('-')||'无')+'    防御 '+p.finalDefense+'    炼化 '+p.records+'/7条'+(p.preset?'    预设装备':'    cost '+p.cost+'/'+p.budget),
-  lines:[...p.atoms].sort((a,b)=>a.atomId-b.atomId).map(a=>({text:atomLabel(data,p,a).replace(/^#\d+\s+/,''),fullText:atomLabel(data,p,a),color:a.fallback?palette.gold:a.value<0?palette.red:palette.green})),
+  lines:E.orderedAtoms(data,p,p.atoms).map(a=>({text:atomLabel(data,p,a).replace(/^#\d+\s+/,''),fullText:atomLabel(data,p,a),color:a.fallback?palette.gold:a.value<0?palette.red:palette.green})),
   skills:Object.entries(p.levels).filter(([,n])=>n>0).map(([id,n])=>({id:+id,level:n})).sort(C.compareSkills).map(s=>skill(data,s.id).name+' Lv'+s.level),decos:placements(p.id),
-  summary:p.fallback?'自由 '+p.fallback.freeRecords+' / 6条 · 兜底前预算 '+p.fallback.before+' → '+p.fallback.after+' · '+(p.fallback.effect?'末条防御 +'+p.fallback.effect.value:'末条留空'):''
+  summary:E.fallbackSummary(p.fallback)
  }));
  cards.push(layoutCard({owner:'charm',title:'护石 · '+charm.name,stats:'孔位 '+(charm.slots.join('-')||'无')+'    '+(charm.empty?'未使用护石':'技能与孔位已校验'),lines:[],skills:charm.skills.map(s=>skill(data,s.skill_id).name+' Lv'+s.level),decos:placements('charm'),summary:''}));
  const weaponCard=layoutCard({owner:weapon.id,title:'武器 · '+weapon.name,stats:weapon.typeName+'    原生孔位 '+(weapon.slots.join('-')||'无'),lines:[],skills:['使用原生武器孔位','百龙珠 · '+C.rampageLabel(data,shared.request)],decos:placements(weapon.id),summary:''});

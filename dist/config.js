@@ -34,6 +34,6 @@ function normalize(data,payload){
 function validateRampageId(data,id){if(id===0||id===0x00100000)return 0;if(!Number.isSafeInteger(id)||!data.rampageDecorations?.some(d=>d.gameId===id))throw new Error('百龙珠ID无效');return id;}
 function rampageLabel(data,request){if(request.rampageDecorationId===undefined)return '未指定（沿用 Mod 模板）';const id=validateRampageId(data,request.rampageDecorationId);return id?data.rampageDecorations.find(d=>d.gameId===id).name:'空置';}
 function compareSkills(a,b){return b.level-a.level||a.id-b.id;}
-function payload(data,request){return {application:'Sunbreak Forge',version:'0.5.0',request:normalize(data,request)};}
+function payload(data,request){return {application:'Sunbreak Forge',version:'0.5.1',request:normalize(data,request)};}
 const api={normalize,payload,compareSkills,validateRampageId,rampageLabel};if(typeof module!=='undefined'&&module.exports)module.exports=api;root.ForgeConfig=api;
 })(globalThis);

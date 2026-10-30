@@ -7,7 +7,7 @@ const evaluate=(atoms,fallback=false)=>E.evaluateArmor(data,query(fallback),{id:
 test('专用兜底合计次数包含count与跨行、跨ID，预算用尽和开关均不能绕过',()=>{
  for(const enabled of [false,true])for(const atoms of [[atom(70,5)],[atom(70),atom(70)],[atom(70),atom(71)]])assert.throws(()=>evaluate(atoms,enabled),/最多出现1次/);
  assert.throws(()=>evaluate([atom(70)]),/需要开启/);
- assert.throws(()=>evaluate([atom(70),atom(60),atom(76,1,{value:12,valueIndex:2,fallback:true})],true),/兜底冲突/);
+ assert.throws(()=>evaluate([atom(70),atom(60),atom(76,1,{value:12,valueIndex:2,fallback:true})],true),/收尾|兜底冲突/);
  assert.doesNotThrow(()=>evaluate([atom(69,2)]));
 });
 test('其他模式专用词条和伪造兜底标记在统一校验层拒绝',()=>{
@@ -16,9 +16,9 @@ test('其他模式专用词条和伪造兜底标记在统一校验层拒绝',()=
  assert.throws(()=>evaluate([atom(69,2,{fallback:true})],true),/只能标记1条/);
  assert.throws(()=>evaluate([atom(69,1,{fallback:true}),atom(76,1,{value:12,valueIndex:2,fallback:true})],true),/只能标记1条/);
 });
-test('手动孔位增长不可溢出444，恰好填满仍允许',()=>{
+test('手动孔位合计可以溢出，保留原记录与cost，最终饱和444',()=>{
  const deletion={atomId:149,skillId:200,value:-1,count:2};
- assert.throws(()=>evaluate([atom(139,5),deletion]),/孔位容量/);
+ const p=evaluate([atom(139,5),deletion]);assert.deepEqual(p.slots,[4,4,4]);assert.equal(p.cost,10);assert.equal(p.records,7);
  assert.deepEqual(evaluate([atom(139,4),deletion]).slots,[4,4,4]);
 });
 test('技能、孔位和数值词条字段在保存前校验，补全索引并规范显示属性',()=>{
