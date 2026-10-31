@@ -72,7 +72,7 @@ function augmentedLabel(atom){
 function renderResult(r,index){
  const req=new Set(activeRequest.skills.map(s=>s.id));const weapon=data.weapons.find(w=>w.id===r.weaponId);const names=Object.fromEntries(r.pieces.map(p=>[p.id,p.name]));names[weapon.id]=weapon.name;names.charm=r.charm.name;
  let html='<article class="result-card"><div class="result-card-head"><span class="result-number">'+String(index+1).padStart(2,'0')+'</span><div><h3>可行配装方案</h3><span class="verified">'+(r.owned?'✓ 已有装备索引、实际炼化与珠子库存校验通过':r.presetEquipment?'✓ 预设装备、技能与逐孔插珠校验通过':'✓ 炼化预算、技能与插珠校验通过')+'</span></div><div class="result-export-actions"><button class="export-result" data-share-image="'+index+'">截图分享</button><button class="export-result" data-lock-result="'+index+'">固定这套装备</button><button class="export-result" data-export="'+index+'">导出 JSON ↓</button><button class="export-result export-mod" data-export-mod="'+index+'">Mod 导出 ↓</button></div></div>';
- html+='<div class="result-metrics"><span><b>'+r.defense+'</b>基础防御</span><span><b>'+r.records+'</b>炼化词条</span><span><b>'+(r.skillAdds||0)+'</b>新增技能等级</span><span title="只合计新增技能正cost，不含孔位和负面词条"><b>'+(r.skillAddCost||0)+'</b>新增技能cost</span><span><b>'+r.decoCount+'</b>珠子</span><span><b>'+r.unusedSlots.length+'</b>空余孔位</span></div><div class="result-main">';
+ html+='<div class="result-metrics"><span><b>'+r.defense+'</b>基础防御</span><span title="五件防具强化至最终上限，保留炼化变化"><b>'+(r.maxDefense??'—')+'</b>满强化防御</span><span><b>'+r.records+'</b>炼化词条</span><span><b>'+(r.skillAdds||0)+'</b>新增技能等级</span><span title="只合计新增技能正cost，不含孔位和负面词条"><b>'+(r.skillAddCost||0)+'</b>新增技能cost</span><span><b>'+r.decoCount+'</b>珠子</span><span><b>'+r.unusedSlots.length+'</b>空余孔位</span></div><div class="result-metrics result-resistances" title="五件防具含炼化及同系列加成后的总耐性，不含技能、猫饭等额外加成"><span>基础耐性</span>'+[['fire','火'],['water','水'],['thunder','雷'],['ice','冰'],['dragon','龙']].map(([key,name])=>'<span>'+name+' <b>'+r.resistances[key]+'</b></span>').join('')+(r.seriesResistanceBonus?'<span>同系列全耐性 <b>+'+r.seriesResistanceBonus+'</b>（已计入）</span>':'')+'</div><div class="result-main">';
  html+='<div class="equip-row"><div class="equip-line"><span class="equip-part">武器</span><div class="equip-content"><div class="equip-name">'+esc(weapon.name)+'</div><div class="equip-sub">'+esc(weapon.typeName)+' · 使用原生孔位</div><div class="equip-sub">百龙珠：'+esc(ForgeConfig.rampageLabel(data,activeRequest))+'</div></div>'+slotsHTML(weapon.slots)+'</div></div>';
  for(const p of r.pieces){
   const score=r.scores?.[p.id];const native=p.skills.map(s=>esc(skill(s.skill_id).name)+' '+s.level).join(' / ');
@@ -89,7 +89,7 @@ function renderResult(r,index){
  html+='<div class="deco-section"><h4 class="mini-heading"><span>装饰品</span><span>'+r.decoCount+' 颗</span></h4><div class="deco-list">'+(r.decorations.length?r.decorations.map(x=>{const d=data.decorations.find(d=>d.id===x.id);return '<span class="deco-chip">'+esc(d.name)+' × '+x.count+'</span>';}).join(''):'<span class="muted small">无需额外珠子</span>')+'</div><details class="placement"><summary>查看逐孔插法与空余孔位</summary>';
  const owners=[weapon.id,...r.pieces.map(p=>p.id),'charm'];
  for(const owner of owners){const ps=r.placement.filter(p=>p.owner===owner);if(!ps.length)continue;html+='<div class="placement-row"><strong>'+esc(names[owner])+'</strong><span>'+ps.map(p=>{const d=data.decorations.find(d=>d.id===p.decorationId);return p.level+'级孔 → '+(d?esc(d.name):'空');}).join('　/　')+'</span></div>';}
- html+='</details></div><p class="result-foot">基础防御含武器加成和炼化变化，不含铠玉强化。该方案保证可行，不代表全局最优。'+(r.stormsoulConservative?'风雷合一额外技能加成未计入。':'')+'</p></div></article>';
+ html+='</details></div><p class="result-foot">基础防御含角色自带1点、武器加成和炼化变化；满强化防御假设五件防具均强化至最终上限。防御、基础耐性均不含技能、猫饭等额外加成。该方案保证可行，不代表全局最优。'+(r.stormsoulConservative?'风雷合一额外技能加成未计入。':'')+'</p></div></article>';
  $('results').insertAdjacentHTML('beforeend',html);$('resultCount').textContent=found.length;
 }
 function finish(){renderResults();clearInterval(clock);setBusy(false);$('progress').classList.add('hidden');if(worker){worker.terminate();worker=null;}}
@@ -132,7 +132,7 @@ async function shareResult(index){
   const shared=await ForgeShare.encode(data,request,result);if(document.fonts?.ready)await document.fonts.ready;
   if(generation!==shareGeneration)return;const image=ForgeShare.renderImage(data,shared),blob=await new Promise((resolve,reject)=>image.canvas.toBlob(b=>b?resolve(b):reject(new Error('浏览器无法生成图片')),'image/png'));
   if(generation!==shareGeneration)return;const url=URL.createObjectURL(blob);pendingShareImage={blob,url,shared};$('shareImagePreview').src=url;$('shareImagePreview').classList.remove('hidden');$('sharePlanCode').value=shared.token;$('downloadShareImage').disabled=false;$('copyPlanCode').disabled=false;
-  $('shareImageStatus').textContent='完整分享图 '+image.width+' × '+image.height+' · 方案 '+shared.id.slice(0,16)+' · 右下角二维码可独立恢复方案'+(request.options?.ownedOnly?' · 已转为不依赖库存的预设装备方案':'');
+  $('shareImageStatus').textContent='完整分享图 '+image.width+' × '+image.height+' · 方案 '+shared.id.slice(0,16)+' · 外部扫码可访问GitHub项目，图片或完整扫码链接可导入方案'+(request.options?.ownedOnly?' · 已转为不依赖库存的预设装备方案':'');
  }catch(e){if(generation!==shareGeneration)return;$('shareImageError').textContent=e.message;$('shareImageError').classList.remove('hidden');$('shareImageStatus').textContent='生成失败，请重试或使用方案JSON分享。';}
 }
 function openPlanImport(){

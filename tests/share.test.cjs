@@ -27,6 +27,14 @@ test('既有完整方案JSON与扫码文本可导入，不要求重新搜索',as
  assert.equal((await S.parseText(data,JSON.stringify({token:shared.token}))).id,shared.id);
  assert.equal((await S.parseText(data,'https://example.invalid/#s='+encodeURIComponent(shared.token))).id,shared.id);
 });
+test('新分享链接使用指定GitHub主页与code字段，保留完整方案及旧格式兼容',async()=>{
+ const url=new URL(shared.url);assert.equal(url.origin+url.pathname,'https://github.com/hotdog-zz/MHRS-calculator');assert.equal(new URLSearchParams(url.hash.slice(1)).get('code'),shared.token);assert.equal(new URLSearchParams(url.hash.slice(1)).has('s'),false);
+ const recovered=await S.parseText(data,shared.url);assert.equal(recovered.id,shared.id);assert.equal(recovered.token,shared.token);assert.equal(recovered.url,shared.url);assert.deepEqual(recovered.result.armors,shared.result.armors);
+ const symbols='SBF1:hash:ab+cd-$';assert.equal(new URLSearchParams(new URL(S.shareUrl(symbols)).hash.slice(1)).get('code'),symbols);
+ await assert.rejects(()=>S.decode(data,'https://github.com/hotdog-zz/MHRS-calculator#code=invalid'),/完整方案码/);
+ await assert.rejects(()=>S.decode(data,S.shareUrl(shared.token.slice(0,-20))),/损坏|校验失败/);
+ assert.throws(()=>S.makeQr(S.shareUrl('SBF1:'+'+'.repeat(800))),/二维码容量/);
+});
 test('百龙珠随条件、JSON、二维码和分享图保存，空置和旧格式兼容，改变珠子改变指纹',async()=>{
  assert.equal(S.pack(data,request,source)[0],1);
  for(const id of [0,1048579,1048577]){
@@ -61,7 +69,8 @@ test('PNG整图、JPEG压缩图及二维码裁图均能通过图片导入；包�
  try{
   const png=new Blob([image.canvas.toBuffer('image/png')],{type:'image/png'});Object.defineProperty(png,'name',{value:'share.png'});assert.equal(await S.readFile(png,createCanvas),shared.token);
   const jpg=new Blob([image.canvas.toBuffer('image/jpeg',85)],{type:'image/jpeg'});Object.defineProperty(jpg,'name',{value:'share.jpg'});assert.equal(await S.readFile(jpg,createCanvas),shared.token);
-  const crop=createCanvas(bounds.width,bounds.height);crop.getContext('2d').drawImage(image.canvas,bounds.x,bounds.y,bounds.width,bounds.height,0,0,bounds.width,bounds.height);assert.equal(S.decodePixels(crop.getContext('2d').getImageData(0,0,crop.width,crop.height).data,crop.width,crop.height),shared.token);
+  const crop=createCanvas(bounds.width,bounds.height);crop.getContext('2d').drawImage(image.canvas,bounds.x,bounds.y,bounds.width,bounds.height,0,0,bounds.width,bounds.height);const scanned=S.decodePixels(crop.getContext('2d').getImageData(0,0,crop.width,crop.height).data,crop.width,crop.height);assert.equal(scanned,shared.url);assert.equal((await S.decode(data,scanned)).id,shared.id);
+  const oldQr=S.makeQr(shared.token),oldSide=(oldQr.getModuleCount()+8)*4,oldCanvas=createCanvas(oldSide,oldSide);S.drawQr(oldCanvas.getContext('2d'),oldQr,0,0,4);const oldImage=new Blob([oldCanvas.toBuffer('image/png')],{type:'image/png'});Object.defineProperty(oldImage,'name',{value:'legacy.png'});assert.equal(await S.readFile(oldImage,createCanvas),shared.token);
   assert.ok(ctx.getImageData(0,0,image.width,image.height).data.length>0);
  }finally{if(old)global.createImageBitmap=old;else delete global.createImageBitmap;}
 });
@@ -71,8 +80,9 @@ test('文件限制与离线页面的依赖打包检查',async()=>{
 });
 test('离线单文件中的二维码、压缩及方案脚本以浏览器全局方式加载，无需网络或require',async()=>{
  const vm=require('node:vm'),local=path.resolve(__dirname,'../SunbreakForge.html'),html=fs.readFileSync(fs.existsSync(local)?local:path.resolve(__dirname,'../../deliverables/SunbreakForge.html'),'utf8');
- const ctx={crypto:require('node:crypto').webcrypto,TextEncoder,TextDecoder,console};ctx.self=ctx;ctx.window=ctx;vm.createContext(ctx);
+ const ctx={crypto:require('node:crypto').webcrypto,TextEncoder,TextDecoder,URL,URLSearchParams,console};ctx.self=ctx;ctx.window=ctx;vm.createContext(ctx);
  let count=0;for(const match of html.matchAll(/<script([^>]*)>([\s\S]*?)<\/script>/g)){if(match[1].trim()||match[2].includes('function renderResult('))continue;vm.runInContext(match[2],ctx);count++;}
  assert.equal(count,10);assert.equal(typeof ctx.qrcode,'function');assert.equal(typeof ctx.jsQR,'function');assert.equal(typeof ctx.LZString.compressToEncodedURIComponent,'function');
  const recovered=await ctx.ForgeShare.decode(data,shared.token);assert.equal(recovered.id,shared.id);assert.equal(ctx.ForgeShare.makeQr(shared.token).getModuleCount(),S.makeQr(shared.token).getModuleCount());
+ assert.equal((await ctx.ForgeShare.decode(data,shared.url)).id,shared.id);
 });

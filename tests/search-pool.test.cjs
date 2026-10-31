@@ -18,14 +18,14 @@ test('双Worker使用互补配置，达到全局数量时停止两个引擎并�
 test('限时模式合并重复组合时只保留更好结果，不因单Worker结束而终止另一Worker',async()=>{
  const {data,request,result}=fixture(),created=[];request.options.searchMode='time';
  const out=await P.search({data,request,createWorker:factory([(w,send)=>{send({phase:'result',result:result(1)});send({phase:'done',response:{results:[result(1)],domainExhausted:false}});},(w,send)=>{assert.equal(w.terminated,false);send({phase:'result',result:result(3)});send({phase:'result',result:result(2)});send({phase:'done',response:{results:[result(2)],domainExhausted:false}});}],created)});
- assert.equal(out.results.length,1);assert.equal(out.results[0].defense,503);assert.ok(created.every(w=>w.terminated));
+ assert.equal(out.results.length,1);assert.equal(out.results[0].defense,504);assert.ok(created.every(w=>w.terminated));
 });
 test('一个Worker报错或无法创建时另一个继续，非法结果不进入合并结果',async()=>{
  const {data,request,result}=fixture();
  for(const failStart of [false,true]){
   const created=[],make=factory([(w,send)=>send({phase:'result',result:{...result(1),decorations:[{id:'invalid',count:1}]}}),(w,send)=>send({phase:'done',response:{results:[result(2)],domainExhausted:true}})],created);
   const out=await P.search({data,request,createWorker:index=>{if(failStart&&index===0)throw new Error('不可用');return make(index);}});
-  assert.equal(out.results.length,1);assert.equal(out.results[0].defense,502);assert.ok(out.errors.length);assert.ok(created.every(w=>w.terminated));
+  assert.equal(out.results.length,1);assert.equal(out.results[0].defense,503);assert.ok(out.errors.length);assert.ok(created.every(w=>w.terminated));
  }
 });
 test('主动停止同时销毁两个Worker，保留已经通过校验的结果',async()=>{

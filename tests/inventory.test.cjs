@@ -10,7 +10,7 @@ test('库存指纹识别强化、炼化、解锁和箱位，允许普通珠子�
  const mismatch={...q,ownedInventoryId:'SBFI1-other-1'};assert.throws(()=>I.validateQuery(data,stock,mismatch),/另一份/);
 });
 test('已有模式实际炼化不受自由炼化、兜底与新增上限重写；结果按库存实例独立复核',async()=>{
- const {stock,q}=fixture(),out=await I.search(data,q,highs,()=>{},{},stock);assert.equal(out.results.length,1);const r=out.results[0];assert.equal(r.defense,564);assert.equal(r.owned.weapon.index,0);assert.deepEqual(r.pieces.map(p=>p.atoms),stock.entries.filter(e=>e.kind==='armor').map(e=>e.armor.atoms));assert.ok(r.records>0);
+ const {stock,q}=fixture(),out=await I.search(data,q,highs,()=>{},{},stock);assert.equal(out.results.length,1);const r=out.results[0];assert.equal(r.defense,565);assert.equal(r.owned.weapon.index,0);assert.deepEqual(r.pieces.map(p=>p.atoms),stock.entries.filter(e=>e.kind==='armor').map(e=>e.armor.atoms));assert.ok(r.records>0);
  assert.deepEqual(I.validateResult(data,stock,q,{...r,defense:999999,totals:{}}).totals,r.totals);
  const bad=structuredClone(r);bad.owned.armors.head.fingerprint+='x';assert.throws(()=>I.validateResult(data,stock,q,bad),/变化/);
  assert.throws(()=>I.validateResult(data,stock,{...q,options:{...q.options,noCharm:true}},r),/不使用护石/);

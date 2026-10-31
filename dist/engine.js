@@ -2,6 +2,7 @@
 (function(root){
 'use strict';
 const PARTS=['head','chest','arm','waist','leg'];
+const HUNTER_DEFENSE=1;
 const PART_NAMES={head:'头部',chest:'身体',arm:'腕部',waist:'腰部',leg:'脚部'};
 const METHOD_NAMES={Alchemy1:'水镜',Alchemy2:'阳炎',Alchemy3:'月虹',Alchemy4:'幽玄',Alchemy5:'轮回',AlchemyShinki:'神气',AlchemyTensei:'转生',AlchemyKyokkou:'极光',AlchemyHaki:'霸气',AlchemyEnkan:'圆环'};
 const sid=n=>n>=10000?n-10000+200:n;
@@ -296,7 +297,93 @@ function applySearchObjective(data,request,model){
  const combined=new Map();for(const [v,n] of model.lp.objective)combined.set(n,(combined.get(n)||0)+v);
  model.lp.objective=[...combined].map(([n,v])=>[v,n]);
 }
+function equipmentStats(data,result){
+ const resistances={fire:0,water:0,thunder:0,ice:0,dragon:0},series=new Map();
+ let maxDefense=HUNTER_DEFENSE+(data.weapons.find(w=>w.id===result.weaponId)?.defense||0),complete=true;
+ for(const p of result.pieces){
+  const base=data.armors.find(a=>a.id===p.id)||p;
+  if(Number.isInteger(base.seriesId)&&base.seriesId>=0)series.set(base.seriesId,(series.get(base.seriesId)||0)+1);
+  if(Number.isFinite(base.maxDefense))maxDefense+=base.maxDefense+(p.finalDefense-p.defense);else complete=false;
+  for(const key of Object.keys(resistances))resistances[key]+=(p.finalResistances||p.resistances)?.[key]||0;
+ }
+ const seriesResistanceBonus=Math.max(0,Math.min(3,Math.max(0,...series.values())-2));
+ for(const key of Object.keys(resistances))resistances[key]+=seriesResistanceBonus;
+ return {maxDefense:complete?maxDefense:null,resistances,seriesResistanceBonus};
+}
 function resultIdentity(r){if(r.owned)return JSON.stringify([r.owned.inventoryId,r.owned.weapon,r.owned.armors,r.owned.charm]);return r.armors.map(a=>a.id).sort().join('|')+'::'+charmSignature(r.charm);}
+// Allocate whole resistance records across the entire set. The MILP keeps one
+// representative per refund cost; this exact, bounded search restores elements.
+function balanceResistances(data,request,result){
+ if(request.options?.ownedOnly||result.owned||result.presetEquipment)return result;
+ const elements=['fire','water','thunder','ice','dragon'],values=elements.map(()=>0),tasks=[],groups=[];
+ const armors=result.armors.map(piece=>{
+  const a=data.armors.find(a=>a.id===piece.id),fixed=request.options?.fixedArmors?.[a.part];
+  const locked=Array.isArray(fixed?.atoms),atoms=[],group={sums:[0,0,0,0,0],counts:[0,0,0,0,0],signs:new Set()};groups.push(group);
+  for(let i=0;i<5;i++)values[i]+=a.resistances[elements[i]]||0;
+  for(const atom of piece.atoms){
+   const raw=data.atoms.find(t=>t.pool===a.pool&&t.id===atom.atomId);
+   if(!locked&&raw?.category===14&&atom.value!==0){
+    const choices=elements.map((element,i)=>{
+     const candidate=data.atoms.find(t=>t.pool===a.pool&&t.category===14&&t.cost===raw.cost&&isOrdinaryAtom(t)&&numericAttribute(t)===element&&t.values.some(v=>v.value===atom.value&&v.weight>0));
+     const v=candidate?.values.find(v=>v.value===atom.value&&v.weight>0);
+     return candidate?{i,atom:{...atom,atomId:candidate.id,valueIndex:v.value_index,attribute:element,count:1}}:null;
+    }).filter(Boolean);
+    if(choices.length){group.signs.add(Math.sign(atom.value));for(let n=0;n<atom.count;n++){const t={choices,delta:atom.value,group,atoms,index:atoms.length};atoms.push(null);tasks.push(t);}continue;}
+   }
+   atoms.push({...atom});
+   if(raw?.category===14||raw?.category===15){const i=elements.indexOf(numericAttribute(raw));values[i]+=atom.value*atom.count;if(raw.category===14){group.sums[i]+=atom.value*atom.count;group.counts[i]+=atom.count;group.signs.add(Math.sign(atom.value));}}
+  }
+  return {...piece,atoms};
+ });
+ if(!tasks.length)return result;
+ tasks.sort((a,b)=>Math.abs(b.delta)-Math.abs(a.delta)||a.choices.length-b.choices.length);
+ const score=v=>[...v].sort((a,b)=>a-b),compare=(a,b)=>{for(let i=0;i<5;i++)if(a[i]!==b[i])return a[i]-b[i];return 0;};
+ // Splitting remaining losses into units gives an optimistic leximin bound.
+ const lowerHigh=(v,loss)=>{
+  const a=[...v].sort((a,b)=>b-a);let width=1;
+  while(width<5){const need=(a[width-1]-a[width])*width;if(loss<need)break;loss-=need;for(let j=0;j<width;j++)a[j]=a[width];width++;}
+  const q=Math.floor(loss/width),rem=loss%width;for(let j=0;j<width;j++)a[j]-=q+(j<rem?1:0);return a;
+ };
+ const tracked=groups.filter(g=>g.signs.size>1),valid=()=>tracked.every(g=>g.counts.every((count,i)=>!count||g.sums[i]!==0));
+ const apply=(t,c,sign)=>{values[c.i]+=sign*t.delta;t.group.sums[c.i]+=sign*t.delta;t.group.counts[c.i]+=sign;};
+ const choices=t=>[...t.choices].sort((a,b)=>Math.sign(t.delta)*(values[a.i]-values[b.i])||a.i-b.i);
+ const initial=[];for(const t of tasks){const c=choices(t)[0];apply(t,c,1);initial.push(c);}
+ let best=valid()?score(values):null,assignment=valid()?initial:null;
+ for(let i=tasks.length-1;i>=0;i--)apply(tasks[i],initial[i],-1);
+ // Keep a second legal incumbent for mixed signs: grouping each armor's gains
+ // and losses avoids the zero-sum pairs that a record-by-record greedy creates.
+ const grouped=[];
+ for(const group of groups){
+  const entries=tasks.map((t,i)=>({t,i})).filter(e=>e.t.group===group);if(!entries.length)continue;
+  let chosen=null,localBest=null;
+  for(let positive=0;positive<5;positive++)for(let negative=0;negative<5;negative++){
+   const picks=entries.map(({t})=>t.choices.find(c=>c.i===(t.delta>0?positive:negative)));if(picks.some(c=>!c))continue;
+   entries.forEach(({t},i)=>apply(t,picks[i],1));
+   if(group.counts.every((n,i)=>!n||group.sums[i]!==0)){const s=score(values);if(!localBest||compare(s,localBest)>0){localBest=s;chosen=picks;}}
+   entries.forEach(({t},i)=>apply(t,picks[i],-1));
+  }
+  if(!chosen)break;entries.forEach(({t,i},j)=>{apply(t,chosen[j],1);grouped.push({t,i,c:chosen[j]});});
+ }
+ if(grouped.length===tasks.length&&valid()&&(!best||compare(score(values),best)>0)){best=score(values);assignment=[];for(const {i,c}of grouped)assignment[i]=c;}
+ for(let i=grouped.length-1;i>=0;i--)apply(grouped[i].t,grouped[i].c,-1);
+ const selected=[],loss=new Array(tasks.length+1).fill(0),gain=[...loss],seen=new Set();
+ for(let i=tasks.length-1;i>=0;i--){loss[i]=loss[i+1]+Math.max(0,-tasks[i].delta);gain[i]=gain[i+1]+Math.max(0,tasks[i].delta);}
+ const symmetric=tasks.every(t=>t.choices.length===5);
+ const column=i=>[values[i],...tracked.flatMap(g=>[g.sums[i],g.counts[i]])].join(',');
+ function visit(index){
+  const optimistic=score(lowerHigh(lowerHigh(values,loss[index]).map(v=>-v),gain[index]).map(v=>-v));
+  if(best&&compare(optimistic,best)<=0)return;
+  if(index===tasks.length){if(valid()){best=score(values);assignment=[...selected];}return;}
+  const columns=elements.map((_,i)=>column(i)),key=index+':'+(symmetric?columns.sort():columns).join(';');if(seen.has(key))return;seen.add(key);
+  const t=tasks[index],tried=new Set();
+  for(const c of choices(t)){
+   const signature=column(c.i);if(symmetric&&tried.has(signature))continue;tried.add(signature);
+   apply(t,c,1);selected.push(c);visit(index+1);selected.pop();apply(t,c,-1);
+  }
+ }
+ visit(0);if(!assignment)return result;tasks.forEach((t,i)=>{t.atoms[t.index]=assignment[i].atom;});
+ return {...result,armors};
+}
 function reconstruct(model,solution,data,request){
  const value=n=>solution.Values?solution.Values[model.lp.indices.get(n)]||0:solution.Columns?.[n]?.Primal||0;
  const get=n=>Math.round(value(n));
@@ -312,7 +399,7 @@ function reconstruct(model,solution,data,request){
  });
  const charm=model.charms.find(c=>get(c.n))?.c;
  const decorations=model.decos.filter(d=>get(d.n)>0).map(d=>({id:d.d.id,count:get(d.n)}));
- return {weaponId:request.weaponId,armors,charm,decorations};
+ return balanceResistances(data,request,{weaponId:request.weaponId,armors,charm,decorations});
 }
 function sparseRows(lp,from=0,infinity=Infinity){
  const rows=lp.rows.slice(from),starts=[0],indices=[],values=[],lower=[],upper=[];
@@ -327,7 +414,12 @@ function modelSeed(data,model,result){
   for(const e of p.edits){const count=sum(piece.atoms.filter(a=>a.skillId===e.skill&&Math.sign(a.value)===e.sign).map(a=>a.count));set(e.n,count);set(e.gate,count?1:0);}
   const points=sum(piece.atoms.filter(a=>data.atoms.find(v=>v.pool===piece.pool&&v.id===a.atomId)?.category===19).map(a=>a.value*a.count));
   const choice=p.choices.find(c=>c.points===points);if(!choice)return null;set(choice.n,1);
-  for(const e of p.numeric){const count=sum(piece.atoms.filter(a=>a.atomId===e.atom&&a.value===e.value&&(a.valueIndex??0)===(e.valueIndex??0)&&!!a.fallback===!!e.fallback).map(a=>a.count));set(e.n,count);}
+  for(const e of p.numeric){const target=data.atoms.find(a=>a.pool===piece.pool&&a.id===e.atom);const count=sum(piece.atoms.filter(a=>{
+   if(a.value!==e.value||!!a.fallback!==!!e.fallback)return false;
+   const raw=data.atoms.find(t=>t.pool===piece.pool&&t.id===a.atomId);
+   if(target?.category===14&&target.cost<0)return raw?.category===14&&raw.cost===target.cost;
+   return a.atomId===e.atom&&(a.valueIndex??0)===(e.valueIndex??0);
+  }).map(a=>a.count));set(e.n,count);}
   if(p.fallbackSelectors){const f=piece.fallback;if(!f)return null;const state=p.fallbackSelectors.find(s=>s.kind===f.termination&&f.before>=s.lower&&f.before<=s.upper&&(!f.effect?!s.effect:s.effect?.atomId===f.effect.atomId&&s.effect?.valueIndex===f.effect.valueIndex));if(!state)return null;set(state.n,1);if(state.kind==='failed')for(const w of p.failureWitnesses||[])set(w.n,w.test(piece)?1:0);}
   if(p.defenseCancellationVars){const net=piece.finalDefense-piece.defense,has=piece.atoms.some(a=>data.atoms.find(v=>v.pool===piece.pool&&v.id===a.atomId)?.category===13);set(p.defenseCancellationVars.has,has?1:0);set(p.defenseCancellationVars.positive,has&&net>0?1:0);}
  }
@@ -450,7 +542,7 @@ function validateResult(data,request,result){
  const skillIndex=new Map(data.skills.map(s=>[s.id,s]));const totals={};const add=(id,lv)=>{totals[id]=(totals[id]||0)+lv;};
  const weapon=data.weapons.find(w=>w.id===result.weaponId);if(!weapon||weapon.id!==request.weaponId)throw new Error('武器与请求不一致');
  if(result.armors.length!==5||new Set(result.armors.map(v=>data.armors.find(a=>a.id===v.id)?.part)).size!==5)throw new Error('必须恰好选择五个不同部位');
- const containers=[{id:weapon.id,slots:weapon.slots}],pieces=[];let defense=weapon.defense||0;
+ const containers=[{id:weapon.id,slots:weapon.slots}],pieces=[];let defense=HUNTER_DEFENSE+(weapon.defense||0);
  for(const piece of result.armors){
   const evaluated=evaluateArmor(data,request,piece);
   const fixed=request.options?.fixedArmors?.[evaluated.part];
@@ -466,7 +558,7 @@ function validateResult(data,request,result){
  const ds=result.decorations.map(x=>{const d=data.decorations.find(d=>d.id===x.id);if(!d||!Number.isInteger(x.count)||x.count<=0)throw new Error('珠子不存在或数量非法');for(const s of d.skills)add(s.skill_id,s.level*x.count);return {d,count:x.count};});
  const placement=packDecorations(containers,ds);
  for(const r of request.skills)if((totals[r.id]||0)<r.level)throw new Error('目标技能未满足：'+skillIndex.get(r.id).name);
- return {...result,pieces,totals,placement,defense,verified:true,skillAddCost:sum(pieces.map(p=>p.skillAddCost)),skillAdds:sum(pieces.map(p=>p.skillAdds)),slotAdds:sum(pieces.map(p=>p.slotAdds)),additions:sum(pieces.map(p=>p.additions)),records:sum(pieces.map(p=>p.records)),decoCount:sum(ds.map(x=>x.count)),unusedSlots:placement.filter(p=>!p.decorationId).map(p=>p.level),stormsoulConservative:(totals[110]||0)>=4};
+ return {...result,...equipmentStats(data,{weaponId:result.weaponId,pieces}),pieces,totals,placement,defense,verified:true,skillAddCost:sum(pieces.map(p=>p.skillAddCost)),skillAdds:sum(pieces.map(p=>p.skillAdds)),slotAdds:sum(pieces.map(p=>p.slotAdds)),additions:sum(pieces.map(p=>p.additions)),records:sum(pieces.map(p=>p.records)),decoCount:sum(ds.map(x=>x.count)),unusedSlots:placement.filter(p=>!p.decorationId).map(p=>p.level),stormsoulConservative:(totals[110]||0)>=4};
 }
 function addExclusion(model,excluded){
  const ids=Array.isArray(excluded)?excluded:excluded.armors;
@@ -578,6 +670,6 @@ async function search(data,request,highs,progress=()=>{},execution={}){
   note:'双Worker互补候选搜索；限时模式持续优化所选指标，超时不排除未证明最优的组合。所有结果独立校验。时限内不保证全局最优。风雷合一额外加成未计入。'};
 }
 
-const api={fallbackSummary,orderedAtoms,fallbackEffects,canFailOrdinaryDraw,isDedicatedFallback,isOrdinaryAtom,validateArmorSelection,PARTS,PART_NAMES,METHOD_NAMES,upgradeSlots,caps,ordinarySlotShapes,generateCharms,equivalentScore,buildModel,reconstruct,validateResult,validateCharm,validateRequest,packDecorations,fallbackEffect,splitFallback,applySearchObjective,resultIdentity,validateRestrictions,evaluateArmor,atomSignature,charmSignature,compareResults,search};
+const api={HUNTER_DEFENSE,equipmentStats,balanceResistances,modelSeed,fallbackSummary,orderedAtoms,fallbackEffects,canFailOrdinaryDraw,isDedicatedFallback,isOrdinaryAtom,validateArmorSelection,PARTS,PART_NAMES,METHOD_NAMES,upgradeSlots,caps,ordinarySlotShapes,generateCharms,equivalentScore,buildModel,reconstruct,validateResult,validateCharm,validateRequest,packDecorations,fallbackEffect,splitFallback,applySearchObjective,resultIdentity,validateRestrictions,evaluateArmor,atomSignature,charmSignature,compareResults,search};
 if(typeof module!=='undefined'&&module.exports)module.exports=api;root.ForgeEngine=api;
 })(globalThis);

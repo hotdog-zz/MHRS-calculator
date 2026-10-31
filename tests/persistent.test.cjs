@@ -12,7 +12,7 @@ test('多个配装在同一持久模型增量加入排除条件，最终销毁�
 });
 test('扩展候选范围时提供经过逐约束验证的初始解，并保留全范围最优结果',async()=>{
  const d=fixture(30),q={weaponId:'weapon',skills:[{id:0,level:1}],options:{seconds:3,limit:1,noCharm:true,searchMode:'time',resultSort:'defense'}},m=measured();
- const r=await E.search(d,q,m.solver);assert.ok(r.results.length);assert.equal(r.results[0].defense,529);assert.ok(m.calls.create>=2);assert.ok(m.calls.seed>=1);assert.equal(m.calls.create,m.calls.dispose);
+ const r=await E.search(d,q,m.solver);assert.ok(r.results.length);assert.equal(r.results[0].defense,530);assert.ok(m.calls.create>=2);assert.ok(m.calls.seed>=1);assert.equal(m.calls.create,m.calls.dispose);
 });
 test('持久稀疏矩阵与兼容LP文本路径保留同样的可行域及防御最优值',async()=>{
  const d=fixture(4),q={weaponId:'weapon',skills:[{id:0,level:1}],options:{seconds:3,limit:1,noCharm:true,searchMode:'time',resultSort:'defense'}};

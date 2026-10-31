@@ -25,7 +25,7 @@ test('固定防具连同非目标炼化原样进入模型，独立校验拒绝�
 test('限时模式忽略数量上限、扩展候选范围，唯一组合耗尽时提前结束',async()=>{
  const d=fixture(),q=query();d.atoms=[];d.armors[0].pool=0;d.armors[0].skills=[{skill_id:0,level:2}];
  for(let i=1;i<35;i++)d.armors.push({...d.armors[0],id:'head'+i,name:'头'+i,defense:100+i});q.options.searchMode='time';q.options.limit=1;q.options.seconds=4;
- const r=await E.search(d,q,highs);assert.equal(r.results.length,35,JSON.stringify(r.attempts));assert.equal(r.domainExhausted,true);assert.ok(r.results.length>q.options.limit);assert.equal(new Set(r.results.map(x=>x.armors.map(a=>a.id).join('|'))).size,35);assert.equal(r.results[0].defense,534);
+ const r=await E.search(d,q,highs);assert.equal(r.results.length,35,JSON.stringify(r.attempts));assert.equal(r.domainExhausted,true);assert.ok(r.results.length>q.options.limit);assert.equal(new Set(r.results.map(x=>x.armors.map(a=>a.id).join('|'))).size,35);assert.equal(r.results[0].defense,535);
 });
 test('固定非最优护石不被最大等级或孔位候选代替，真实数据完整往返',async()=>{
  const d=JSON.parse(fs.readFileSync(path.resolve(__dirname,'../dist/data.json'))),q={weaponId:'LongSword:302',skills:[{id:0,level:1}],options:{seconds:5,limit:1,sex:'MaleOnly'}};
@@ -73,6 +73,6 @@ test('限时排序直接改变MILP目标：高防御与低技能cost选择不同
   if(order==='skillsDesc')assert.equal(r.skillAdds,7);
  }
  q.options.searchMode='count';q.options.resultSort='defense';const count=solve(d,q);assert.equal(E.reconstruct(count.m,count.raw,d,q).armors[0].id,'head');
- const n=fixture(),t=query();n.armors[0].skills=[{skill_id:0,level:2}];n.atoms.push({pool:1,id:73,category:13,cost:1,values:[{value:20,value_index:0,weight:100}]});t.options.searchMode='time';t.options.resultSort='defense';const numeric=solve(n,t);const v=E.validateResult(n,t,E.reconstruct(numeric.m,numeric.raw,n,t));assert.equal(v.defense,640);
+ const n=fixture(),t=query();n.armors[0].skills=[{skill_id:0,level:2}];n.atoms.push({pool:1,id:73,category:13,cost:1,values:[{value:20,value_index:0,weight:100}]});t.options.searchMode='time';t.options.resultSort='defense';const numeric=solve(n,t);const v=E.validateResult(n,t,E.reconstruct(numeric.m,numeric.raw,n,t));assert.equal(v.defense,641);
  assert.equal(new Set(numeric.m.lp.objective.map(x=>x[1])).size,numeric.m.lp.objective.length);
 });

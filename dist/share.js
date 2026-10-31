@@ -1,4 +1,4 @@
-/* Self-contained loadout sharing. QR data contains no host, account or Mod template. */
+/* Self-contained loadout sharing. QR links use the public project, without account or Mod template. */
 (function(root){
 'use strict';
 const E=root.ForgeEngine||(typeof require==='function'?require('./engine.js'):null);
@@ -8,6 +8,12 @@ const LZ=root.LZString||(typeof require==='function'?require('./vendor/lz-string
 const QR=root.qrcode||(typeof require==='function'?require('./vendor/qrcode.js'):null);
 const jsQR=root.jsQR||(typeof require==='function'?require('./vendor/jsQR.js'):null);
 const PREFIX='SBF1:',MAX_TOKEN=2300,MAX_FILE=20*1024*1024;
+const PROJECT_URL='https://github.com/hotdog-zz/MHRS-calculator';
+function shareUrl(token){return PROJECT_URL+'#code='+encodeURIComponent(token);}
+function extractToken(text){
+ const token=String(text).trim();if(token.startsWith(PREFIX))return token;
+ try{const url=new URL(token);if(!['https:','http:'].includes(url.protocol))return token;const params=new URLSearchParams(url.hash.slice(1));return params.get('code')||params.get('s')||token;}catch{return token;}
+}
 const clone=x=>JSON.parse(JSON.stringify(x));
 const skill=(data,id)=>data.skills.find(s=>s.id===id);
 function check(test,message='方案数据格式不正确'){if(!test)throw new Error(message);}
@@ -63,16 +69,14 @@ function unpack(data,p){
 async function encode(data,request,result){
  const payload=pack(data,request,result),json=JSON.stringify(payload),id=await digest(json),token=PREFIX+id+':'+LZ.compressToEncodedURIComponent(json);
  check(token.length<=MAX_TOKEN,'这套方案超过单个二维码容量，请使用方案JSON分享');
- return {id,token,...unpack(data,payload)};
+ return {id,token,url:shareUrl(token),...unpack(data,payload)};
 }
 async function decode(data,text){
- let token=String(text).trim();if(!token.startsWith(PREFIX)){
-  try{const u=new URL(token);token=new URLSearchParams(u.hash.slice(1)).get('s')||token;}catch{}
- }
+ const token=extractToken(text);
  const match=/^SBF1:([0-9a-f]{64}):([A-Za-z0-9+\-$]+)$/.exec(token);check(match&&token.length<=MAX_TOKEN,'请粘贴完整方案码，或选择带二维码的分享图片');
  const json=LZ.decompressFromEncodedURIComponent(match[2]);check(json&&json.length<=100000,'方案数据损坏');check(await digest(json)===match[1],'方案校验失败：数据损坏或不完整');
  let payload;try{payload=JSON.parse(json);}catch{throw new Error('方案内容无法解析');}
- return {id:match[1],token,...unpack(data,payload)};
+ return {id:match[1],token,url:shareUrl(token),...unpack(data,payload)};
 }
 async function parseText(data,text){
  const s=String(text).trim();if(!s.startsWith('{'))return decode(data,s);
@@ -101,7 +105,7 @@ async function readFile(file,createCanvas=newCanvas){
   else {url=URL.createObjectURL(file);img=await new Promise((resolve,reject)=>{const i=new Image();i.onload=()=>resolve(i);i.onerror=()=>reject(new Error('无法读取图片'));i.src=url;});}
   const w=img.width,h=img.height;check(w>0&&h>0&&w*h<=64000000,'图片尺寸过大，请裁出右下角二维码后重试');
   const crop=Math.min(1200,w,h),regions=[[w-crop,h-crop,crop,crop],[0,0,w,h]];
-  for(const [sx,sy,sw,sh] of regions){const ratio=Math.min(1,2200/Math.max(sw,sh)),cw=Math.round(sw*ratio),ch=Math.round(sh*ratio),canvas=createCanvas(cw,ch),ctx=canvas.getContext('2d',{willReadFrequently:true});ctx.drawImage(img,sx,sy,sw,sh,0,0,cw,ch);const token=decodePixels(ctx.getImageData(0,0,cw,ch).data,cw,ch);if(token?.startsWith(PREFIX))return token;}
+  for(const [sx,sy,sw,sh] of regions){const ratio=Math.min(1,2200/Math.max(sw,sh)),cw=Math.round(sw*ratio),ch=Math.round(sh*ratio),canvas=createCanvas(cw,ch),ctx=canvas.getContext('2d',{willReadFrequently:true});ctx.drawImage(img,sx,sy,sw,sh,0,0,cw,ch);const text=decodePixels(ctx.getImageData(0,0,cw,ch).data,cw,ch),token=text&&extractToken(text);if(token?.startsWith(PREFIX))return token;}
   throw new Error('未识别到方案二维码，请选择原图，或裁出二维码后重试');
  }finally{if(url)URL.revokeObjectURL(url);img?.close?.();}
 }
@@ -116,7 +120,7 @@ function wrap(ctx,text,width){
 function renderImage(data,shared,createCanvas=newCanvas){
  const r=shared.result,W=1920,P=40,G=18,font='"Noto Sans CJK SC","Microsoft YaHei","PingFang SC",sans-serif';
  const palette={bg:'#202235',panel:'#2b2d47',cell:'#333650',line:'#454862',ink:'#f2f3fa',muted:'#b8bdd0',green:'#9cdbb6',red:'#f0a1aa',gold:'#edca7b'};
- const qr=makeQr(shared.token),scale=4,side=(qr.getModuleCount()+8)*scale,RW=Math.max(460,side+36),LW=W-P*2-G-RW,RX=P+LW+G;
+ const qr=makeQr(shareUrl(shared.token)),scale=4,side=(qr.getModuleCount()+8)*scale,RW=Math.max(460,side+36),LW=W-P*2-G-RW,RX=P+LW+G;
  const measure=createCanvas(1,1).getContext('2d'),setMeasure=size=>{measure.font=size+'px '+font;};
  const weapon=data.weapons.find(w=>w.id===r.weaponId),charm=cleanCharm(data,r.charm);
  const placements=owner=>{const items=r.placement.filter(p=>p.owner===owner).sort((a,b)=>a.index-b.index);
@@ -155,14 +159,17 @@ function renderImage(data,shared,createCanvas=newCanvas){
  }));
  cards.push(layoutCard({owner:'charm',title:'护石 · '+charm.name,stats:'孔位 '+(charm.slots.join('-')||'无')+'    '+(charm.empty?'未使用护石':'技能与孔位已校验'),lines:[],skills:charm.skills.map(s=>skill(data,s.skill_id).name+' Lv'+s.level),decos:placements('charm'),summary:''}));
  const weaponCard=layoutCard({owner:weapon.id,title:'武器 · '+weapon.name,stats:weapon.typeName+'    原生孔位 '+(weapon.slots.join('-')||'无'),lines:[],skills:['使用原生武器孔位','百龙珠 · '+C.rampageLabel(data,shared.request)],decos:placements(weapon.id),summary:''});
- let y=112;for(const card of [weaponCard,...cards]){card.x=P;card.y=y;card.width=LW;y+=card.height+12;}
+ const top=156;let y=top;for(const card of [weaponCard,...cards]){card.x=P;card.y=y;card.width=LW;y+=card.height+12;}
  const totals=Object.entries(r.totals).filter(([,n])=>n>0).map(([id,n])=>({id:+id,level:Math.min(n,skill(data,+id).max)})).sort(C.compareSkills);
- setMeasure(26);let skillY=182;const finalSkills=totals.map(s=>{const lines=wrap(measure,skill(data,s.id).name,RW-135),height=Math.max(43,lines.length*34+8),item={...s,lines,y:skillY,height};skillY+=height;return item;});
+ setMeasure(26);let skillY=top+70;const finalSkills=totals.map(s=>{const lines=wrap(measure,skill(data,s.id).name,RW-135),height=Math.max(43,lines.length*34+8),item={...s,lines,y:skillY,height};skillY+=height;return item;});
  const H=Math.max(y+154,skillY+side+80)+P;check(H<=16000,'分享图片过长，请减少方案内容后重试');
  const canvas=createCanvas(W,H),ctx=canvas.getContext('2d');ctx.fillStyle=palette.bg;ctx.fillRect(0,0,W,H);
  const text=(s,x,y,color=palette.ink,size=24,bold=false)=>{ctx.fillStyle=color;ctx.font=(bold?'600 ':'')+size+'px '+font;ctx.fillText(s,x,y);};
- ctx.fillStyle='#191b2c';ctx.fillRect(0,0,W,92);text('曙光配装工房 · 配装分享',P,57,palette.ink,34,true);
- const metrics='基础防御 '+r.defense+'   炼化 '+r.records+'条   装饰品 '+r.decoCount+'颗';ctx.font='25px '+font;text(metrics,W-P-ctx.measureText(metrics).width,56,palette.gold,25,true);
+ ctx.fillStyle='#191b2c';ctx.fillRect(0,0,W,top-20);text('曙光配装工房 · 配装分享',P,57,palette.ink,34,true);
+ const metrics='基础防御 '+r.defense+'   满强化防御 '+(r.maxDefense??'—');ctx.font='25px '+font;text(metrics,W-P-ctx.measureText(metrics).width,56,palette.gold,25,true);
+ const resistances='基础耐性   '+[['fire','火'],['water','水'],['thunder','雷'],['ice','冰'],['dragon','龙']].map(([key,name])=>name+' '+r.resistances[key]).join('   ');
+ text(resistances,P,105,palette.ink,24);
+ const counts=(r.seriesResistanceBonus?'同系列全耐性 +'+r.seriesResistanceBonus+'（已计入）   ':'')+'炼化 '+r.records+'条   装饰品 '+r.decoCount+'颗';ctx.font='23px '+font;text(counts,W-P-ctx.measureText(counts).width,105,palette.muted,23);
  for(const card of [weaponCard,...cards]){
   ctx.fillStyle=palette.panel;ctx.fillRect(card.x,card.y,card.width,card.height);ctx.fillStyle='#44435c';ctx.fillRect(card.x,card.y,5,card.height);
   card.titleRows.forEach((line,i)=>text(line,card.x+24,card.y+39+i*39,palette.ink,30,true));
@@ -174,14 +181,14 @@ function renderImage(data,shared,createCanvas=newCanvas){
   card.decoRows.forEach((line,i)=>text(line,card.x+24+card.decoX,bodyY+27+i*35,palette.ink,24));
   card.summaryRows.forEach((line,i)=>text(line,card.x+24,bodyY+card.bodyH+22+i*29,palette.muted,21));
  }
- ctx.fillStyle=palette.panel;ctx.fillRect(RX,112,RW,H-P-112);text('最终技能',RX+18,152,palette.ink,29,true);
+ ctx.fillStyle=palette.panel;ctx.fillRect(RX,top,RW,H-P-top);text('最终技能',RX+18,top+40,palette.ink,29,true);
  finalSkills.forEach((s,i)=>{if(i%2===0){ctx.fillStyle=palette.cell;ctx.fillRect(RX+8,s.y-25,RW-16,s.height);}s.lines.forEach((line,j)=>text(line,RX+18,s.y+3+j*34,palette.ink,26));const level=s.level+' / '+skill(data,s.id).max;ctx.font='600 29px '+font;text(level,W-P-18-ctx.measureText(level).width,s.y+5,s.level===skill(data,s.id).max?palette.gold:palette.ink,29,true);});
- const qrX=W-P-side,qrY=H-P-side;drawQr(ctx,qr,qrX,qrY,scale);text('识别二维码 · 导入同一方案',RX+18,qrY-18,palette.muted,23);
+ const qrX=W-P-side,qrY=H-P-side;drawQr(ctx,qr,qrX,qrY,scale);text('扫码访问项目 · 图片可导入方案',RX+18,qrY-18,palette.muted,23);
  const footerY=H-P-124;text('曙光配装工房',P,footerY,palette.ink,29,true);text('导入方案 → 选择分享图片，或粘贴扫码内容',P,footerY+37,palette.muted,22);
- const note='基础防御不含铠玉强化；武器炼化、百龙珠与花链不参与计算。'+(r.stormsoulConservative?'风雷合一额外技能未计入。':'');setMeasure(20);wrap(measure,note,LW-24).forEach((line,i)=>text(line,P,footerY+69+i*27,palette.muted,20));
+ const note='满强化防御按最终强化上限计算；防御与基础耐性均不含技能、猫饭等额外加成。'+(r.stormsoulConservative?'风雷合一额外技能未计入。':'');setMeasure(20);wrap(measure,note,LW-24).forEach((line,i)=>text(line,P,footerY+69+i*27,palette.muted,20));
  text('SHA-256 '+shared.id,P,H-P,palette.muted,17);
- return {canvas,width:W,height:H,qrBounds:{x:qrX,y:qrY,width:side,height:side},cards,weaponCard,finalSkills,layout:'compact-columns',equipmentBounds:{x:P,y:112,width:LW,height:y-112},skillBounds:{x:RX,y:112,width:RW,height:skillY-112},padding:P};
+ return {canvas,width:W,height:H,qrBounds:{x:qrX,y:qrY,width:side,height:side},cards,weaponCard,finalSkills,layout:'compact-columns',equipmentBounds:{x:P,y:top,width:LW,height:y-top},skillBounds:{x:RX,y:top,width:RW,height:skillY-top},padding:P};
 }
-const api={pack,unpack,encode,decode,parseText,lockedRequest,makeQr,drawQr,decodePixels,readFile,renderImage,atomLabel,wrap};
+const api={shareUrl,pack,unpack,encode,decode,parseText,lockedRequest,makeQr,drawQr,decodePixels,readFile,renderImage,atomLabel,wrap};
 if(typeof module!=='undefined'&&module.exports)module.exports=api;root.ForgeShare=api;
 })(globalThis);
