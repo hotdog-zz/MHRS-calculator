@@ -94,6 +94,7 @@ function renderResult(r,index){
 }
 function finish(){renderResults();clearInterval(clock);setBusy(false);$('progress').classList.add('hidden');if(worker){worker.terminate();worker=null;}}
 function start(){
+ if(globalThis.ForgeSimUI?.isRunning()){toast('请先停止炼化模拟，再开始配装搜索');return;}
  try{state=ForgeConfig.normalize(data,state);if(state.options.ownedOnly)ForgeInventory.validateQuery(data,inventoryStock,state);else ForgeEngine.validateRequest(data,state);delete state.options.presetEquipment;const w=data.weapons.find(w=>w.id===state.weaponId),d=data.rampageDecorations.find(d=>d.gameId===state.rampageDecorationId);if(!state.options.ownedOnly&&d&&d.slot>ForgeMod.rampageSlot(data,w,modTemplate))throw new Error('当前百龙孔放不下'+d.name+'，请更换百龙珠或导入含扩孔的模板');}catch(e){toast((state.options.presetEquipment?'预设固定炼化不符合普通搜索条件，可解除固定后重试：':'')+e.message);return;}
  activeRequest=JSON.parse(JSON.stringify(state));found=[];resultPage=0;lastResultsRender=0;$('resultPagination').classList.add('hidden');$('results').replaceChildren();$('resultCount').textContent='0';$('empty').classList.add('hidden');$('statusMessage').classList.add('hidden');$('progress').classList.remove('hidden');$('progressTitle').textContent='准备求解…';$('progressDetail').textContent='整理目标技能与合法候选';started=Date.now();$('timer').textContent='0s';setBusy(true);clock=setInterval(()=>$('timer').textContent=Math.floor((Date.now()-started)/1000)+'s',250);
  const embeddedWorker=$('embeddedWorker'),embeddedWasm=$('embeddedWasm');
@@ -335,7 +336,8 @@ function acceptTemplateLocks(){
 let inventoryStock=null,inventoryStore=null,inventoryPageIndex=0;
 function inventoryWeapon(){return inventoryStock&&state.ownedInventoryId===inventoryStock.id?inventoryStock.byKey.get(state.ownedWeaponKey):undefined;}
 function inventoryRampage(){const id=inventoryWeapon()?.item.HyakuryuDecoId||0;return id===1048576?0:id;}
-function showInventoryPage(open){$('plannerPage').classList.toggle('hidden',open);$('inventoryPage').classList.toggle('hidden',!open);$('plannerTab').setAttribute?.('aria-pressed',String(!open));$('inventoryTab').setAttribute?.('aria-pressed',String(open));if(open)renderInventory();}
+function showPage(page){for(const name of ['planner','inventory','sim']){$(name+'Page')?.classList.toggle('hidden',name!==page);$(name+'Tab')?.setAttribute?.('aria-pressed',String(name===page));}if(page==='inventory')renderInventory();}
+function showInventoryPage(open){showPage(open?'inventory':'planner');}
 function syncOwnedMode(){
  $('ownedOnly').checked=!!state.options.ownedOnly;
  $('ownedWeaponWrap').classList.toggle('hidden',!state.options.ownedOnly);
@@ -436,6 +438,7 @@ async function init(){
   let saved;try{const hash=new URLSearchParams(location.hash.slice(1)).get('q');saved=hash?JSON.parse(new TextDecoder().decode(Uint8Array.from(atob(hash),c=>c.charCodeAt(0)))):JSON.parse(localStorage.getItem('sunbreak-forge-v1'));}catch{}
   try{state=ForgeConfig.normalize(data,saved||state);}catch{state=ForgeConfig.normalize(data,state);}
   await initializeInventory();
+  globalThis.ForgeSimUI?.initialize(data,()=>!busy);
   const types=new Map(data.weapons.map(w=>[w.type,w.typeName]));$('weaponType').innerHTML=[...types].map(([id,name])=>'<option value="'+id+'">'+esc(name)+'</option>').join('');
   const initial=data.weapons.find(w=>w.id===state.weaponId);$('weaponType').value=initial.type;if(initial.rarity!==10)$('rarity').value='all';syncOptions();renderWeapons();setBusy(false);$('share').disabled=false;$('importConfig').disabled=false;$('importPlan').disabled=false;
   try{const template=localStorage.getItem('sunbreak-forge-mod-template-v1');if(template)modTemplate=ForgeMod.parse(data,template);}catch{modTemplate=null;}renderModTemplate();
@@ -497,7 +500,7 @@ document.querySelectorAll('.controls input,.controls select,.controls button').f
 init();
 
 $('inventoryCategories').onclick=e=>{const button=e.target.closest('[data-inventory-kind]');if(!button)return;$('inventoryKind').value=button.dataset.inventoryKind;inventoryPageIndex=0;renderInventory();};
-$('plannerTab').onclick=()=>showInventoryPage(false);$('inventoryTab').onclick=()=>showInventoryPage(true);$('downloadInventoryLua').onclick=downloadInventoryLua;
+$('simTab').onclick=()=>showPage('sim');$('plannerTab').onclick=()=>showInventoryPage(false);$('inventoryTab').onclick=()=>showInventoryPage(true);$('downloadInventoryLua').onclick=downloadInventoryLua;
 $('ownedOnly').onchange=()=>setOwnedMode($('ownedOnly').checked);$('ownedWeaponSelect').onchange=()=>{state.ownedWeaponKey=$('ownedWeaponSelect').value;state.rampageDecorationId=inventoryRampage();renderRampage();changed();};
 $('inventoryDrop').onclick=()=>$('inventoryFile').click();$('inventoryFile').onchange=()=>{if($('inventoryFile').files?.length===1)importInventoryFile($('inventoryFile').files[0]);$('inventoryFile').value='';};
 for(const name of ['ondragover','ondragenter'])$('inventoryDrop')[name]=e=>{e.preventDefault();$('inventoryDrop').classList.add('drag-over');};$('inventoryDrop').ondragleave=()=>$('inventoryDrop').classList.remove('drag-over');$('inventoryDrop').ondrop=e=>{e.preventDefault();$('inventoryDrop').classList.remove('drag-over');if(e.dataTransfer?.files?.length===1)importInventoryFile(e.dataTransfer.files[0]);else toast('每次请选择一份库存JSON');};
