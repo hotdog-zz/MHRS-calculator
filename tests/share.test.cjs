@@ -82,7 +82,7 @@ test('离线单文件中的二维码、压缩及方案脚本以浏览器全局�
  const vm=require('node:vm'),local=path.resolve(__dirname,'../SunbreakForge.html'),html=fs.readFileSync(fs.existsSync(local)?local:path.resolve(__dirname,'../../deliverables/SunbreakForge.html'),'utf8');
  const ctx={crypto:require('node:crypto').webcrypto,TextEncoder,TextDecoder,URL,URLSearchParams,console};ctx.self=ctx;ctx.window=ctx;vm.createContext(ctx);
  let count=0;for(const match of html.matchAll(/<script([^>]*)>([\s\S]*?)<\/script>/g)){if(match[1].trim()||match[2].includes('function renderResult('))continue;vm.runInContext(match[2],ctx);count++;}
- assert.equal(count,10);assert.equal(typeof ctx.qrcode,'function');assert.equal(typeof ctx.jsQR,'function');assert.equal(typeof ctx.LZString.compressToEncodedURIComponent,'function');
+ assert.equal(count,12);assert.equal(typeof ctx.qrcode,'function');assert.equal(typeof ctx.jsQR,'function');assert.equal(typeof ctx.LZString.compressToEncodedURIComponent,'function');
  const recovered=await ctx.ForgeShare.decode(data,shared.token);assert.equal(recovered.id,shared.id);assert.equal(ctx.ForgeShare.makeQr(shared.token).getModuleCount(),S.makeQr(shared.token).getModuleCount());
  assert.equal((await ctx.ForgeShare.decode(data,shared.url)).id,shared.id);
 });
