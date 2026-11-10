@@ -22,9 +22,9 @@ test('Pool6阈值回归：剩余1补偿、3优先专用、5/7/10普通最大值�
  const expected=[[0,null,0,0],[1,69,1,1],[2,70,2,1],[3,71,3,2],[4,72,4,2],[5,74,5,6],[6,74,5,6],[7,75,7,8],[9,75,7,8],[10,76,10,12],[60,76,10,12]];
  for(const [r,id,cost,value] of expected){const a=E.fallbackEffect(data,6,r);assert.equal(a?.atomId??null,id);assert.equal(a?.cost??0,cost);assert.equal(a?.value??0,value);}
 });
-test('模型没有自由记录时保持未炼化，不因剩余预算伪造收尾',()=>{
+test('明确固定空炼化时保持未炼化，不因剩余预算伪造收尾',()=>{
  for(let budget=0;budget<=20;budget++){
-  const d=fixture(budget),request=q();request.options.augmentLimits={head:0};const {raw,result}=solve(d,request,true);assert.equal(raw.Status,'Optimal');const p=result.pieces.find(p=>p.part==='head');
+  const d=fixture(budget),request=q();request.options.augmentLimits={head:0};request.options.fixedArmors={head:{id:'head',atoms:[]}};const {raw,result}=solve(d,request,true);assert.equal(raw.Status,'Optimal');const p=result.pieces.find(p=>p.part==='head');
   assert.equal(p.finalDefense,100);assert.equal(p.records,0);assert.equal(p.cost,0);assert.equal(p.fallback.effect,null);assert.equal(p.fallback.termination,'unaugmented');assert.equal(p.fallback.after,budget);
  }
 });

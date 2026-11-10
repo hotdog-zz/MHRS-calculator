@@ -4,7 +4,7 @@ function normalize(data,payload){
  const raw=payload?.request||payload;
  if(!raw||!data.weapons.some(w=>w.id===raw.weaponId)||!Array.isArray(raw.skills))throw new Error('配置需要有效的武器和技能列表');
  const seen=new Set();const skills=raw.skills.map(r=>{const s=data.skills.find(s=>s.id===r.id);if(!s||seen.has(r.id)||!Number.isInteger(r.level)||r.level<1||r.level>s.max)throw new Error('配置中的技能或等级无效');seen.add(r.id);return {id:r.id,level:r.level};});
- const o=raw.options||{},options={sex:o.sex==='FemaleOnly'?'FemaleOnly':'MaleOnly',rank:o.rank==='Master'?'Master':'all',augment:o.augment!==false,deleteSkills:o.deleteSkills!==false,defenseFallback:o.defenseFallback===true,ownedOnly:o.ownedOnly===true,seconds:[15,45,90,180].includes(+o.seconds)?+o.seconds:45,limit:[1,3,5,10,20].includes(+o.limit)?+o.limit:3,fixedCharms:o.fixedCharms!==false,noCharm:o.noCharm===true,searchMode:o.searchMode==='time'?'time':'count',resultSort:['defense','skillsAsc','skillsDesc','skillCostAsc','skillCostDesc'].includes(o.resultSort)?o.resultSort:'defense',fixedArmors:{},augmentLimits:{}};
+ const o=raw.options||{},options={sex:o.sex==='FemaleOnly'?'FemaleOnly':'MaleOnly',rank:o.rank==='Master'?'Master':'all',augment:o.augment!==false,deleteSkills:o.deleteSkills!==false,defenseFallback:o.defenseFallback===true,ownedOnly:o.ownedOnly===true,seconds:[15,45,90,180].includes(+o.seconds)?+o.seconds:45,limit:[1,3,5,10,20].includes(+o.limit)?+o.limit:3,fixedCharms:o.fixedCharms!==false,noCharm:o.noCharm===true,searchMode:o.searchMode==='time'?'time':'count',resultSort:['defense','skillsAsc','skillsDesc','skillCostAsc','skillCostDesc','unusedSlotsDesc'].includes(o.resultSort)?o.resultSort:'defense',fixedArmors:{},augmentLimits:{}};
  const parts=['head','chest','arm','waist','leg'];
  for(const part of parts){
   const limit=o.augmentLimits?.[part];if(limit!=null){if(!Number.isInteger(limit)||limit<0||limit>7)throw new Error('新增上限必须为0至7');options.augmentLimits[part]=limit;}
@@ -34,6 +34,6 @@ function normalize(data,payload){
 function validateRampageId(data,id){if(id===0||id===0x00100000)return 0;if(!Number.isSafeInteger(id)||!data.rampageDecorations?.some(d=>d.gameId===id))throw new Error('百龙珠ID无效');return id;}
 function rampageLabel(data,request){if(request.rampageDecorationId===undefined)return '未指定（沿用 Mod 模板）';const id=validateRampageId(data,request.rampageDecorationId);return id?data.rampageDecorations.find(d=>d.gameId===id).name:'空置';}
 function compareSkills(a,b){return b.level-a.level||a.id-b.id;}
-function payload(data,request){return {application:'Sunbreak Forge',version:'0.6.1',request:normalize(data,request)};}
+function payload(data,request){return {application:'Sunbreak Forge',version:'0.6.7',request:normalize(data,request)};}
 const api={normalize,payload,compareSkills,validateRampageId,rampageLabel};if(typeof module!=='undefined'&&module.exports)module.exports=api;root.ForgeConfig=api;
 })(globalThis);
