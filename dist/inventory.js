@@ -131,7 +131,7 @@ function exportPlan(data,stock,template,result,request,{index=1,now=Date.now(),n
  let insect=null;if(weapon.base.type==='insect_glaive'){const matches=stock.entries.filter(e=>e.kind==='insect'&&e.item.InventoryIndex===weapon.item.PairInsectInventoryIndex),e=matches.length===1?matches[0]:null;check(e,'请先在游戏中为该操虫棍配好已有猎虫，再重新导出库存');insect=reference(e);}
  const owners=[r.weaponId,...r.pieces.map(p=>p.id),null,'charm'],slotDecorations=owners.map(owner=>{const list=[0,0,0];if(owner)for(const p of r.placement.filter(p=>p.owner===owner))if(p.decorationId)list[p.index]=M.decoToGame(p.decorationId);return list;});
  const displayName=String(name??'已有装备配装').trim();check(displayName&&displayName.length<=70,'名称需要1至70个字符');
- const weaponType=mod.uiInfo.weaponType,payload={application:PLAN,version:1,forgeVersion:'0.6.1',inventoryId:stock.id,references,insect,slotDecorations,mySetInfo:{...clone(mod.mySetInfo),Name:displayName,IsUsing:true},weaponInfo:{idVal:weapon.item.IdVal,name:weapon.base.name,type:weaponType},displayName};
+ const weaponType=mod.uiInfo.weaponType,payload={application:PLAN,version:1,forgeVersion:'0.6.7',inventoryId:stock.id,references,insect,slotDecorations,mySetInfo:{...clone(mod.mySetInfo),Name:displayName,IsUsing:true},weaponInfo:{idVal:weapon.item.IdVal,name:weapon.base.name,type:weaponType},displayName};
  return {payload,filename:'owned_'+integer(index,'配装栏位',1,224)+'_'+M.base62(Math.floor(now/1000))+'.json',directory:'reframework/data/EquipmentLoadouts/OwnedPlans/'+weaponType+'/'};
 }
 // Portable presets describe equipment values without requiring any inventory identity.

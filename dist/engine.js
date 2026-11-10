@@ -128,6 +128,102 @@ function fallbackEffects(data,pool,remaining){
  return raw.values.filter(v=>v.value>0&&v.weight>0).map(v=>({atomId:raw.id,value:v.value,valueIndex:v.value_index,attribute:'defense',count:1,fallback:true,cost:raw.cost})).sort((a,b)=>b.value-a.value||a.valueIndex-b.valueIndex);
 }
 function fallbackEffect(data,pool,remaining){return fallbackEffects(data,pool,remaining)[0]||null;}
+function finishFreeArmor(data,request,piece){
+ const armor=data.armors.find(a=>a.id===piece.id),pool=data.atoms.filter(a=>a.pool===armor.pool),raw=new Map(pool.map(a=>[a.id,a]));
+ const records=sum(piece.atoms.map(a=>a.count)),cost=sum(piece.atoms.map(a=>raw.get(a.atomId).cost*a.count)),net=sum(piece.atoms.filter(a=>raw.get(a.atomId).category===13).map(a=>a.value*a.count));
+ if(records>6||cost>armor.budget)throw new Error('自由词条超过六条或预算');
+ const existingDefense=piece.atoms.filter(a=>raw.get(a.atomId).category===13),maxExistingNet=sum(existingDefense.map(a=>a.count*Math.max(...raw.get(a.atomId).values.filter(v=>v.weight>0).map(v=>v.value))));
+ let rerolls;
+ const repairDefense=added=>{
+  // Build this small DP only after an actual cancellation. Reroll individual
+  // existing records, keeping their IDs, signed costs and record counts intact.
+  if(!rerolls){
+   const base=piece.atoms.flatMap(a=>Array.from({length:a.count},()=>({...a,count:1})));let states=new Map([[0,{net:0,changes:0,atoms:base}]]);
+   for(let i=0;i<base.length;i++){
+    const a=base[i],row=raw.get(a.atomId);if(row.category!==13)continue;const next=new Map();
+    for(const state of states.values())for(const v of row.values.filter(v=>v.weight>0)){
+     const n=state.net+v.value,changes=state.changes+Number(v.value!==a.value||a.valueIndex!=null&&v.value_index!==a.valueIndex),old=next.get(n);
+     if(old&&old.changes<=changes)continue;const atoms=state.atoms.slice();atoms[i]={...a,value:v.value,valueIndex:v.value_index};next.set(n,{net:n,changes,atoms});
+    }
+    states=next;
+   }
+   rerolls=[...states.values()].filter(s=>s.changes>0).sort((a,b)=>b.net-a.net||a.changes-b.changes);
+  }
+  const extra=sum(added.map(a=>a.value*a.count));
+  for(const state of rerolls){
+   if(state.net+extra===0)continue;
+   try{return evaluateArmor(data,request,{id:piece.id,atoms:[...state.atoms,...added]});}catch{}
+  }
+  return null;
+ };
+ const ordinary=pool.filter(a=>a.category===13&&a.cost>0&&isOrdinaryAtom(a)).flatMap(a=>a.values.filter(v=>v.value>0&&v.weight>0).map(v=>({atomId:a.id,value:v.value,valueIndex:v.value_index,attribute:'defense',count:1,cost:a.cost})));
+ let best=null,frontier=[{atoms:[],cost,net}],lastError;
+ const consider=(state,number,effect)=>{
+  const added=effect?[...state.atoms,effect]:state.atoms,atoms=[...piece.atoms,...added.map(({cost,...a})=>a)];
+  // Avoid rebuilding skill maps for candidates which cannot beat a known finish.
+  const finalDefense=armor.defense+state.net+(effect?.value||0),finished=!!effect||state.cost===armor.budget;
+  const ceiling=existingDefense.length&&state.net+(effect?.value||0)===0?Math.max(finalDefense,armor.defense+maxExistingNet+state.net-net+(effect?.value||0)):finalDefense;
+  if(best&&(Number(finished)<Number(best.finished)||finished===best.finished&&(ceiling<best.value.finalDefense||ceiling===best.value.finalDefense&&state.cost+(effect?.cost||0)<=best.value.cost)))return;
+  let value;try{value=evaluateArmor(data,request,{id:piece.id,atoms});}catch(e){if(e.code==='DEFENSE_CANCELLED')value=repairDefense(added.map(({cost,...a})=>a));if(!value){lastError=e;return;}}
+  if(!best||Number(finished)>Number(best.finished)||finished===best.finished&&(value.finalDefense>best.value.finalDefense||value.finalDefense===best.value.finalDefense&&(value.cost>best.value.cost||value.cost===best.value.cost&&value.records<best.value.records)))best={finished,value};
+ };
+ for(let count=records;count<=6&&frontier.length;count++){
+  const next=new Map();
+  for(const state of frontier){
+   if(count===6&&state.cost<armor.budget){for(const effect of fallbackEffects(data,armor.pool,armor.budget-state.cost))consider(state,count+1,effect);continue;}
+   consider(state,count);
+   if(state.cost>=armor.budget||count===6)continue;
+   for(const effect of ordinary){const nextCost=state.cost+effect.cost,nextNet=state.net+effect.value;if(nextCost>armor.budget||nextNet===0)continue;const candidate={atoms:[...state.atoms,effect],cost:nextCost,net:nextNet};next.set(nextCost+':'+nextNet,candidate);}
+  }
+  frontier=[...next.values()];
+ }
+ if(!best)throw lastError||new Error('这组自由词条无法得到合法防御收尾');
+ return {id:piece.id,atoms:best.value.atoms};
+}
+function completeCountDefense(data,request,result){
+ // Finish generated count-mode results without changing skills, slots or refunds.
+ // Timed searches and actual/fixed inventory must retain their existing behavior.
+ const options=request.options||{};
+ if(options.searchMode==='time'||options.ownedOnly||options.augment===false)return result;
+ const armors=result.armors.map(piece=>{
+  const armor=data.armors.find(a=>a.id===piece.id);
+  if(!armor?.pool||Array.isArray(options.fixedArmors?.[armor.part]?.atoms))return piece;
+  const initial=evaluateArmor(data,request,piece);
+  if(initial.records>=7||initial.cost>=armor.budget)return piece;
+  const ordinary=data.atoms.filter(a=>a.pool===armor.pool&&a.category===13&&a.cost>0&&isOrdinaryAtom(a)).flatMap(a=>a.values.filter(v=>v.value>0&&v.weight>0).map(v=>({atomId:a.id,value:v.value,valueIndex:v.value_index,attribute:'defense',count:1,cost:a.cost})));
+  const baseDefense=initial.finalDefense-armor.defense;
+  let best={atoms:piece.atoms,cost:initial.cost,defense:0,records:initial.records,finished:false},frontier=[{atoms:[],cost:initial.cost,defense:0}];
+  const consider=(state,records)=>{
+   if(baseDefense+state.defense===0&&(state.atoms.length||initial.atoms.some(a=>data.atoms.find(v=>v.pool===armor.pool&&v.id===a.atomId)?.category===13)))return;
+   const atoms=[...piece.atoms,...state.atoms.map(({cost,...a})=>a)];
+   let termination;
+   if(options.defenseFallback){try{termination=splitFallback(data,armor,atoms,records,state.cost).termination;}catch{return;}}
+   const finished=options.defenseFallback?termination==='budget'||termination==='full':state.cost===armor.budget||records===7;
+   if(Number(finished)>Number(best.finished)||finished===best.finished&&(state.cost>best.cost||state.cost===best.cost&&(state.defense>best.defense||state.defense===best.defense&&records<best.records)))best={atoms,cost:state.cost,defense:state.defense,records,finished};
+  };
+  for(let records=initial.records;records<=7&&frontier.length;records++){
+   const next=new Map();
+   for(const state of frontier){
+    consider(state,records);
+    if(state.cost>=armor.budget||records===7)continue;
+    const closing=options.defenseFallback&&records===6;
+    const effects=closing?fallbackEffects(data,armor.pool,armor.budget-state.cost):ordinary;
+    for(const effect of effects){
+     const cost=state.cost+effect.cost,defense=state.defense+effect.value;
+     if(cost>armor.budget||baseDefense+defense===0)continue;
+     // At six records the next accepted entry must be the selected closing tier.
+     const candidate={atoms:[...state.atoms,effect],cost,defense};
+     next.set(cost+':'+defense,candidate);
+    }
+   }
+   frontier=[...next.values()];
+  }
+  if(best.atoms===piece.atoms)return piece;
+  // Recheck the complete armor under the same public legality rules.
+  return {id:piece.id,atoms:evaluateArmor(data,request,{id:piece.id,atoms:best.atoms}).atoms};
+ });
+ return {...result,armors};
+}
 function canFailOrdinaryDraw(data,armor,atoms,remaining){
  const pool=data.atoms.filter(a=>a.pool===armor.pool&&isOrdinaryAtom(a)&&[13,14,19,20].includes(a.category));
  if(pool.some(a=>a.cost>remaining))return true;
@@ -162,6 +258,7 @@ function buildModel(data,request,armors,charms,excluded=[]){
  const lp=new LP(),skillIndex=new Map(data.skills.map(s=>[s.id,s]));
  const skillTerms=Object.fromEntries(request.skills.map(s=>[s.id,[]]));const capacity=[[],[],[],[]];const pieces=[];
  const options={augment:true,deleteSkills:true,...request.options};
+ const fullFallback=options.defenseFallback&&options.searchMode==='time'&&(options.resultSort||'defense')==='defense';
  for(const a of armors){
   const x=lp.variable('a',1,a.ownedMetrics?.records||0);const fixed=request.options?.fixedArmors?.[a.part];
   if(fixed&&fixed.id!==a.id)throw new Error('固定防具候选不一致');
@@ -219,7 +316,7 @@ function buildModel(data,request,armors,charms,excluded=[]){
   }
   lp.constraint([...choices.map(c=>[1,c.n]),[-1,x]],'=',0);
   if((request.options?.augmentLimits?.[a.part]??7)<7)lp.constraint([...edits.filter(e=>e.sign>0).map(e=>[1,e.n]),...choices.map(c=>[c.atoms.length,c.n]),[-request.options.augmentLimits[a.part],x]],'<=',0);
-  if(active&&options.defenseFallback){
+  if(active&&fullFallback){
    const freeRec=[...rec],upper=a.budget+6*Math.max(0,...pool.map(v=>-v.cost));
    const remaining=[[a.budget,x],...cost.map(([c,n])=>[-c,n])];
    const thresholds=[0,...new Set(pool.filter(v=>v.category===13&&v.id>=69&&v.id<=76&&v.cost>0&&v.cost<=upper&&v.values.some(o=>o.value>0&&o.weight>0)).map(v=>v.cost))].sort((a,b)=>a-b);
@@ -254,8 +351,13 @@ function buildModel(data,request,armors,charms,excluded=[]){
    }
    for(const v of selectors)if(v.effect){const e=v.effect;rec.push([1,v.n]);cost.push([e.cost,v.n]);def.push([e.value,v.n]);numeric.push({n:v.n,atom:e.atomId,value:e.value,valueIndex:e.valueIndex,attribute:'defense',fallback:true});}
   }
-  lp.constraint([...rec,[-7,x]],'<=',0);lp.constraint([...cost,[-a.budget,x]],'<=',0);lp.constraint(def,'>=',0);
-  pieces.push({x,a,edits,numeric,choices,fallbackSelectors,failureWitnesses});
+  const postFallback=active&&options.defenseFallback&&!fullFallback;
+  lp.constraint([...rec,[-(postFallback?6:7),x]],'<=',0);lp.constraint([...cost,[-a.budget,x]],'<=',0);
+  // Closure is checked after solving. Keep a safe free-defense lower bound so
+  // a valid positive closing effect can rescue a negative intermediate value.
+  const closingMax=postFallback?Math.max(0,...pool.filter(v=>v.category===13&&v.cost>0).flatMap(v=>v.values.filter(o=>o.weight>0).map(o=>o.value))):0;
+  lp.constraint([...def,[closingMax,x]],'>=',0);
+  pieces.push({x,a,edits,numeric,choices,postFallback,fallbackSelectors,failureWitnesses});
  }
  for(const part of PARTS)lp.constraint(pieces.filter(p=>p.a.part===part).map(p=>[1,p.x]),'=',1);
  const charmVars=charms.map(c=>{
@@ -288,8 +390,27 @@ function applySearchObjective(data,request,model){
  }
  // One unit of the primary integer metric dominates the entire defense range.
  const scale=sum(Object.values(upper))+1,order=request.options.resultSort||'defense';
- const primary=order==='skillsAsc'||order==='skillsDesc'?adds:costs;
- const sign=order==='skillsDesc'||order==='skillCostDesc'?-1:1;
+ let primary=order==='skillsAsc'||order==='skillsDesc'?adds:costs;
+ const sign=order==='skillsDesc'||order==='skillCostDesc'||order==='unusedSlotsDesc'?-1:1;
+ if(order==='unusedSlotsDesc'){
+  // Count occupied whole holes, not the requested level of the jewel in them.
+  // Four integer occupancy counts suffice: exact supply at each level, total
+  // jewel count, and cumulative matching requirements for larger jewels.
+  const supply=Array.from({length:4},()=>[]),count=(slots,level)=>slots.filter(s=>s===level).length;
+  const addSupply=(slots,n)=>{for(let level=1;level<=4;level++){const c=count(slots,level);if(c)supply[level-1].push([c,n]);}};
+  for(const p of model.pieces){
+   if(p.a.ownedMetrics)addSupply(p.a.slots,p.x);
+   else if(p.fixed)addSupply(evaluateArmor(data,request,{id:p.a.id,atoms:p.fixed}).slots,p.x);
+   else for(const c of p.choices)addSupply(c.slots,c.n);
+  }
+  for(const c of model.charms)addSupply(c.c.slots,c.n);
+  model.slotUsage=Array.from({length:4},(_,i)=>({level:i+1,n:model.lp.variable('occupied',21)}));
+  for(const {level,n} of model.slotUsage)model.lp.constraint([[1,n],...supply[level-1].map(([v,key])=>[-v,key])],'<=',count(model.weapon.slots,level));
+  model.lp.constraint([...model.slotUsage.map(v=>[1,v.n]),...model.decos.map(v=>[-1,v.n])],'=',0);
+  for(let level=2;level<=4;level++)model.lp.constraint([...model.decos.filter(v=>v.d.slot>=level).map(v=>[1,v.n]),...model.slotUsage.filter(v=>v.level>=level).map(v=>[-1,v.n])],'<=',0);
+  // Weapon supply is constant for this search and can be omitted from the objective.
+  primary=[...supply.flatMap((terms,i)=>terms.map(([v,n])=>[(i+1)*v,n])),...model.slotUsage.map(v=>[-v.level,v.n])];
+ }
  const tie=model.lp.objective.map(([v,n])=>[v*0.0001,n]);
  model.lp.objective=[...defense.map(([v,n])=>[-v,n]),...tie];
  if(order!=='defense')model.lp.objective.push(...primary.map(([v,n])=>[sign*scale*v,n]));
@@ -399,7 +520,12 @@ function reconstruct(model,solution,data,request){
  });
  const charm=model.charms.find(c=>get(c.n))?.c;
  const decorations=model.decos.filter(d=>get(d.n)>0).map(d=>({id:d.d.id,count:get(d.n)}));
- return balanceResistances(data,request,{weaponId:request.weaponId,armors,charm,decorations});
+ const freeArmors=armors.map(p=>({id:p.id,atoms:p.atoms.map(a=>({...a}))}));
+ const completed=armors.map(piece=>{
+  const p=model.pieces.find(p=>p.a.id===piece.id);if(!p.postFallback)return piece;
+  try{return finishFreeArmor(data,request,piece);}catch(error){error.code='POST_FALLBACK_INVALID';error.armorId=piece.id;throw error;}
+ });
+ return balanceResistances(data,request,{weaponId:request.weaponId,armors:completed,charm,decorations,_freeArmors:freeArmors});
 }
 function sparseRows(lp,from=0,infinity=Infinity){
  const rows=lp.rows.slice(from),starts=[0],indices=[],values=[],lower=[],upper=[];
@@ -409,8 +535,15 @@ function sparseRows(lp,from=0,infinity=Infinity){
 function modelSeed(data,model,result){
  if(!result||!model.pieces.some(p=>p.a.id===result.pieces[0].id))return null;
  const values=new Float64Array(model.lp.vars.length),set=(n,v)=>{if(n)values[model.lp.indices.get(n)]=v;};
- for(const piece of result.pieces){
-  const p=model.pieces.find(p=>p.a.id===piece.id);if(!p)return null;set(p.x,1);if(p.fixed)continue;
+ for(const displayed of result.pieces){
+  const p=model.pieces.find(p=>p.a.id===displayed.id);if(!p)return null;set(p.x,1);if(p.fixed)continue;
+  let piece=displayed;
+  if(p.postFallback){
+   let atoms=result._freeArmors?.find(a=>a.id===displayed.id)?.atoms;
+   if(!atoms&&displayed.fallback?.effect)atoms=displayed.fallback.atoms.filter(a=>!a.fallback);
+   atoms=atoms||displayed.atoms;if(sum(atoms.map(a=>a.count))>6)return null;
+   piece={...displayed,atoms,cost:sum(atoms.map(a=>data.atoms.find(v=>v.pool===displayed.pool&&v.id===a.atomId).cost*a.count)),finalDefense:displayed.defense+sum(atoms.filter(a=>data.atoms.find(v=>v.pool===displayed.pool&&v.id===a.atomId)?.category===13).map(a=>a.value*a.count)),fallback:null};
+  }
   for(const e of p.edits){const count=sum(piece.atoms.filter(a=>a.skillId===e.skill&&Math.sign(a.value)===e.sign).map(a=>a.count));set(e.n,count);set(e.gate,count?1:0);}
   const points=sum(piece.atoms.filter(a=>data.atoms.find(v=>v.pool===piece.pool&&v.id===a.atomId)?.category===19).map(a=>a.value*a.count));
   const choice=p.choices.find(c=>c.points===points);if(!choice)return null;set(choice.n,1);
@@ -425,6 +558,10 @@ function modelSeed(data,model,result){
  }
  const charm=model.charms.find(c=>charmSignature(c.c)===charmSignature(result.charm));if(!charm)return null;set(charm.n,1);
  for(const d of model.decos)set(d.n,result.decorations.find(v=>v.id===d.d.id)?.count||0);
+ if(model.slotUsage){
+  if(!Array.isArray(result.placement))return null;
+  for(const {level,n} of model.slotUsage)set(n,result.placement.filter(p=>p.decorationId&&p.level===level).length);
+ }
  // A changed candidate set or refund representative may make a seed inapplicable.
  if(model.lp.rows.some(row=>{const n=sum(row.terms.map(([v,key])=>v*values[model.lp.indices.get(key)]));return row.op==='='?Math.abs(n-row.rhs)>1e-6:row.op==='<='?n>row.rhs+1e-6:n<row.rhs-1e-6;}))return null;
  return values;
@@ -535,9 +672,10 @@ function evaluateArmor(data,request,piece){
 function compareResults(a,b,order='defense'){
  const skillAdds=r=>r.skillAdds??sum(r.pieces.map(p=>p.skillAdds||0));
  const skillCost=r=>r.skillAddCost??sum((r.pieces||[]).map(p=>p.skillAddCost||0));
- let score=order==='skillCostAsc'?skillCost(a)-skillCost(b):order==='skillCostDesc'?skillCost(b)-skillCost(a):order==='skillsAsc'?skillAdds(a)-skillAdds(b):order==='skillsDesc'?skillAdds(b)-skillAdds(a):b.defense-a.defense;
+ let score=order==='unusedSlotsDesc'?unusedSlotScore(b)-unusedSlotScore(a):order==='skillCostAsc'?skillCost(a)-skillCost(b):order==='skillCostDesc'?skillCost(b)-skillCost(a):order==='skillsAsc'?skillAdds(a)-skillAdds(b):order==='skillsDesc'?skillAdds(b)-skillAdds(a):b.defense-a.defense;
  return score||b.defense-a.defense||a.records-b.records||a.armors.map(x=>x.id).join('|').localeCompare(b.armors.map(x=>x.id).join('|'));
 }
+function unusedSlotScore(result){return sum(result.unusedSlots||[]);}
 function validateResult(data,request,result){
  const skillIndex=new Map(data.skills.map(s=>[s.id,s]));const totals={};const add=(id,lv)=>{totals[id]=(totals[id]||0)+lv;};
  const weapon=data.weapons.find(w=>w.id===result.weaponId);if(!weapon||weapon.id!==request.weaponId)throw new Error('武器与请求不一致');
@@ -583,6 +721,18 @@ function excludeDefenseCancellation(model,armorId){
  lp.constraint([...net,[-positiveBound-1,positive],[1,has]],'<=',0);
  p.defenseCancellationChecked=true;p.defenseCancellationVars={has,positive};return true;
 }
+function excludeFreePattern(model,armorId,solution){
+ const p=model.pieces.find(p=>p.a.id===armorId);if(!p?.postFallback)return false;
+ const value=n=>Math.round(solution.Values?solution.Values[model.lp.indices.get(n)]||0:solution.Columns?.[n]?.Primal||0);
+ const names=[...p.edits.map(e=>e.n),...p.numeric.map(e=>e.n),...p.choices.map(c=>c.n)],key=names.map(value).join(',');
+ p.rejectedFreePatterns=p.rejectedFreePatterns||new Set();if(p.rejectedFreePatterns.has(key))return false;p.rejectedFreePatterns.add(key);
+ const witnesses=[];
+ for(const name of names){const c=value(name),ub=model.lp.vars[model.lp.indices.get(name)].ub;
+  if(c>0){const n=model.lp.variable('retry_lower');model.lp.constraint([[1,name],[ub-c+1,n]],'<=',ub);model.lp.constraint([[1,n],[-1,p.x]],'<=',0);witnesses.push([-1,n]);}
+  if(c<ub){const n=model.lp.variable('retry_upper');model.lp.constraint([[1,name],[-c-1,n]],'>=',0);model.lp.constraint([[1,n],[-1,p.x]],'<=',0);witnesses.push([-1,n]);}
+ }
+ model.lp.constraint([[1,p.x],...witnesses],'<=',0);return true;
+}
 function validateRestrictions(data,request){
  const options=request.options||{};
  for(const [part,limit] of Object.entries(options.augmentLimits||{}))if(!PARTS.includes(part)||!Number.isInteger(limit)||limit<0||limit>7)throw new Error('逐件新增上限必须为0至7');
@@ -621,11 +771,11 @@ async function search(data,request,highs,progress=()=>{},execution={}){
   }
   return verified;
  };
- const record=(model,raw)=>accept(validateResult(data,request,reconstruct(model,raw,data,request)));
+ const record=(model,raw)=>{const result=reconstruct(model,raw,data,request);return accept(validateResult(data,request,!timed&&!request.options?.defenseFallback&&execution.completeDefense!==false?completeCountDefense(data,request,result):result));};
  // Secure a legal incumbent before spending the budget on the ranking objective.
  if(timed&&execution.bootstrap!==false){
   const initialRequest={...request,options:{...request.options,searchMode:'count',limit:1,seconds:Math.min(12,budget/1000)}};
-  const initial=await search(data,initialRequest,highs,p=>{if(p.phase==='result')accept(p.result);else progress({...p,message:p.message?'寻找初始配装 · '+p.message:p.message});},{...execution,bootstrap:false});
+  const initial=await search(data,initialRequest,highs,p=>{if(p.phase==='result')accept(p.result);else progress({...p,message:p.message?'寻找初始配装 · '+p.message:p.message});},{...execution,bootstrap:false,completeDefense:false});
   attempts.push(...initial.attempts.map(a=>({...a,phase:'bootstrap'})));
   for(const r of initial.results)accept(r);
  }
@@ -659,7 +809,7 @@ async function search(data,request,highs,progress=()=>{},execution={}){
     const exclusion=timed&&allFixed?{armors:verified.armors.map(a=>a.id),charm:charmSignature(verified.charm)}:verified.armors.map(a=>a.id);
     excluded.push(exclusion);addExclusion(model,exclusion);if(timed&&!full)break;
    }catch(e){
-    attempt.validation=e.message;if(e.code==='DEFENSE_CANCELLED'&&excludeDefenseCancellation(model,e.armorId))continue;
+    attempt.validation=e.message;if(e.code==='POST_FALLBACK_INVALID'&&excludeFreePattern(model,e.armorId,raw))continue;if(e.code==='DEFENSE_CANCELLED'&&excludeDefenseCancellation(model,e.armorId))continue;
     if(raw.Status==='Infeasible'&&full){exhaustive=results.length===0;domainExhausted=true;}break;
    }
   }}finally{solver?.dispose();}
@@ -670,6 +820,6 @@ async function search(data,request,highs,progress=()=>{},execution={}){
   note:'双Worker互补候选搜索；限时模式持续优化所选指标，超时不排除未证明最优的组合。所有结果独立校验。时限内不保证全局最优。风雷合一额外加成未计入。'};
 }
 
-const api={HUNTER_DEFENSE,equipmentStats,balanceResistances,modelSeed,fallbackSummary,orderedAtoms,fallbackEffects,canFailOrdinaryDraw,isDedicatedFallback,isOrdinaryAtom,validateArmorSelection,PARTS,PART_NAMES,METHOD_NAMES,upgradeSlots,caps,ordinarySlotShapes,generateCharms,equivalentScore,buildModel,reconstruct,validateResult,validateCharm,validateRequest,packDecorations,fallbackEffect,splitFallback,applySearchObjective,resultIdentity,validateRestrictions,evaluateArmor,atomSignature,charmSignature,compareResults,search};
+const api={HUNTER_DEFENSE,equipmentStats,balanceResistances,modelSeed,fallbackSummary,orderedAtoms,fallbackEffects,finishFreeArmor,excludeFreePattern,completeCountDefense,canFailOrdinaryDraw,isDedicatedFallback,isOrdinaryAtom,validateArmorSelection,PARTS,PART_NAMES,METHOD_NAMES,upgradeSlots,caps,ordinarySlotShapes,generateCharms,equivalentScore,buildModel,reconstruct,validateResult,validateCharm,validateRequest,packDecorations,fallbackEffect,splitFallback,applySearchObjective,resultIdentity,validateRestrictions,evaluateArmor,atomSignature,charmSignature,compareResults,unusedSlotScore,search};
 if(typeof module!=='undefined'&&module.exports)module.exports=api;root.ForgeEngine=api;
 })(globalThis);

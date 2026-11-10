@@ -81,5 +81,6 @@ test('已满原生技能被扣一级后，不能继续拿原先满级作为连�
  const request={weaponId:'weapon',skills:[{id:0,level:1}],options:{augment:true,deleteSkills:true,defenseFallback:true,noCharm:true}},m=E.buildModel(d,request,d.armors,[{id:'none',empty:true,skills:[],slots:[]}]),p=m.pieces[0];
  for(const e of p.edits)m.lp.constraint([[1,e.n]],'=',e.sign<0?1:0);for(const e of p.numeric)if(!e.fallback)m.lp.constraint([[1,e.n]],'=',0);for(const c of p.choices)m.lp.constraint([[1,c.n]],'=',c.points===0?1:0);
  assert.equal(E.canFailOrdinaryDraw(d,d.armors[0],[{atomId:149,skillId:0,value:-1,count:1}],30),false);
- assert.equal(highs.solve(m.lp.text(),{output_flag:false,time_limit:2}).Status,'Infeasible');
+ const raw=highs.solve(m.lp.text(),{output_flag:false,time_limit:2});assert.equal(raw.Status,'Optimal');
+ const r=E.validateResult(d,request,E.reconstruct(m,raw,d,request)),head=r.pieces.find(p=>p.id==='head');assert.notEqual(head.fallback.termination,'failed');assert.equal(head.levels[0],2);assert.ok(head.records>1);
 });

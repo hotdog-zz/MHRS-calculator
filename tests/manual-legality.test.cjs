@@ -28,9 +28,9 @@ test('技能、孔位和数值词条字段在保存前校验，补全索引并�
  const input=[{atomId:73,value:4,count:1,attribute:'fire'}],p=evaluate(input);
  assert.equal(p.atoms[0].valueIndex,2);assert.equal(p.atoms[0].attribute,'defense');assert.deepEqual(M.encodeAtoms(data,p,p.atoms)[0],{Id:73,SkillId:0,ValueIndex:2});assert.equal(input[0].attribute,'fire');
 });
-test('自动模型自由候选剔除专用词条，专用兜底只由补偿选择器提供',()=>{
+test('自动模型只包含普通自由词条，专用兜底移到出解后计算',()=>{
  const armor=data.armors.find(a=>a.id==='Head:502'),none={id:'none',empty:true,skills:[],slots:[]};
- for(const enabled of [false,true]){const m=E.buildModel(data,query(enabled),[armor],[none]),numeric=m.pieces[0].numeric;assert.ok(numeric.filter(n=>!n.fallback).every(n=>![61,70,71,72].includes(n.atom)));assert.equal(numeric.some(n=>n.fallback),enabled);}
+ for(const enabled of [false,true]){const m=E.buildModel(data,query(enabled),[armor],[none]),numeric=m.pieces[0].numeric;assert.ok(numeric.filter(n=>!n.fallback).every(n=>![61,70,71,72].includes(n.atom)));assert.equal(numeric.some(n=>n.fallback),false);assert.equal(m.pieces[0].postFallback,enabled);}
 });
 function fixture(){return {skills:[{id:0,name:'目标',max:7,cost:3}],weapons:[{id:'weapon',slots:[]}],armors:E.PARTS.map((part,i)=>({id:part,name:part,part,rank:'Master',sex:'Both',defense:100,slots:[],resistances:{},skills:[],pool:i?0:1,budget:i?0:10})),atoms:[{pool:1,id:144,category:20,cost:3,values:[{value:1,value_index:0,weight:100}]}],decorations:[],fixedCharms:[]};}
 test('仅固定装备仍能搜索炼化；固定空炼化与旧配置严格保留；错误装备不可替换',async()=>{
