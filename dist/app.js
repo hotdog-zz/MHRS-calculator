@@ -439,6 +439,13 @@ async function init(){
   try{state=ForgeConfig.normalize(data,saved||state);}catch{state=ForgeConfig.normalize(data,state);}
   await initializeInventory();
   globalThis.ForgeSimUI?.initialize(data,()=>!busy);
+  globalThis.ForgeExtensionUI?.initialize(data,{
+   context:()=>({request:ForgeConfig.normalize(data,state),inventory:inventoryStock?.raw,initialResults:found}),
+   canStart:()=>!busy&&!globalThis.ForgeSimUI?.isRunning(),
+   toast,
+   busy:value=>{setBusy(value);if(value)$('cancel').classList.add('hidden');},
+   present:(result,request,label)=>{activeRequest=JSON.parse(JSON.stringify(request));found=[result];resultPage=0;renderResults();$('empty').classList.add('hidden');$('statusMessage').classList.remove('hidden');$('statusMessage').textContent='技能扩展对应方案：'+label+'。技能增量相对分析开始时的目标。';$('results').scrollIntoView({behavior:'smooth',block:'start'});}
+  });
   const types=new Map(data.weapons.map(w=>[w.type,w.typeName]));$('weaponType').innerHTML=[...types].map(([id,name])=>'<option value="'+id+'">'+esc(name)+'</option>').join('');
   const initial=data.weapons.find(w=>w.id===state.weaponId);$('weaponType').value=initial.type;if(initial.rarity!==10)$('rarity').value='all';syncOptions();renderWeapons();setBusy(false);$('share').disabled=false;$('importConfig').disabled=false;$('importPlan').disabled=false;
   try{const template=localStorage.getItem('sunbreak-forge-mod-template-v1');if(template)modTemplate=ForgeMod.parse(data,template);}catch{modTemplate=null;}renderModTemplate();

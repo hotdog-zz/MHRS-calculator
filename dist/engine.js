@@ -374,7 +374,7 @@ function buildModel(data,request,armors,charms,excluded=[]){
  const wc=caps(weapon.slots);
  for(let i=0;i<4;i++)lp.constraint([...decos.filter(v=>v.d.slot>=i+1).map(v=>[1,v.n]),...capacity[i].map(([v,n])=>[-v,n])],'<=',wc[i]);
  for(const s of request.skills)lp.constraint(skillTerms[s.id],'>=',s.level);
- const model={lp,pieces,charms:charmVars,decos,weapon};
+ const model={lp,pieces,charms:charmVars,decos,weapon,skillTerms};
  if(options.searchMode==='time')applySearchObjective(data,request,model);
  return model;
 }
@@ -771,7 +771,8 @@ async function search(data,request,highs,progress=()=>{},execution={}){
   }
   return verified;
  };
- const record=(model,raw)=>{const result=reconstruct(model,raw,data,request);return accept(validateResult(data,request,!timed&&!request.options?.defenseFallback&&execution.completeDefense!==false?completeCountDefense(data,request,result):result));};
+ const record=(model,raw)=>{const result=reconstruct(model,raw,data,request),verified=validateResult(data,request,!timed&&!request.options?.defenseFallback&&execution.completeDefense!==false?completeCountDefense(data,request,result):result);execution.onVerifiedResult?.(verified);return accept(verified);};
+ for(const initial of execution.initialResults||[])try{accept(validateResult(data,request,initial));}catch{}
  // Secure a legal incumbent before spending the budget on the ranking objective.
  if(timed&&execution.bootstrap!==false){
   const initialRequest={...request,options:{...request.options,searchMode:'count',limit:1,seconds:Math.min(12,budget/1000)}};
@@ -791,7 +792,7 @@ async function search(data,request,highs,progress=()=>{},execution={}){
   const armors=groups.flatMap(g=>g.slice(0,tiers[stage]).map(v=>v.a));if(stage>0&&armors.length===groups.flatMap(g=>g.slice(0,tiers[stage-1])).length)continue;
   const full=armors.length===eligible.length,stageEnd=timed&&!full?Math.min(deadline,started+budget*(stage===0?0.15:0.4)):deadline;
   progress({phase:'model',stage:stage+1,armors:armors.length,charms:charms.length,message:`按${alternate?'防御与技能互补':'等效'}优先搜索 ${armors.length} 件防具 · ${charms.length} 枚护石候选`});
-  const model=buildModel(data,request,armors,charms,timed?[]:excluded),solver=typeof highs.createModel==='function'?persistentSolver(highs,model,data,seed):null;
+  const model=buildModel(data,request,armors,charms,timed?[]:excluded);execution.transformModel?.(model,request);const solver=typeof highs.createModel==='function'?persistentSolver(highs,model,data,seed):null;
   try{while(Date.now()<stageEnd&&(timed||results.length<limit)){
    const remaining=(stageEnd-Date.now())/1000;if(remaining<0.05)break;
    const seconds=timed?remaining:full?remaining:Math.min(remaining,stage===0?Math.max(4,budget/1000*0.3):Math.max(6,remaining*0.5));
@@ -820,6 +821,6 @@ async function search(data,request,highs,progress=()=>{},execution={}){
   note:'双Worker互补候选搜索；限时模式持续优化所选指标，超时不排除未证明最优的组合。所有结果独立校验。时限内不保证全局最优。风雷合一额外加成未计入。'};
 }
 
-const api={HUNTER_DEFENSE,equipmentStats,balanceResistances,modelSeed,fallbackSummary,orderedAtoms,fallbackEffects,finishFreeArmor,excludeFreePattern,completeCountDefense,canFailOrdinaryDraw,isDedicatedFallback,isOrdinaryAtom,validateArmorSelection,PARTS,PART_NAMES,METHOD_NAMES,upgradeSlots,caps,ordinarySlotShapes,generateCharms,equivalentScore,buildModel,reconstruct,validateResult,validateCharm,validateRequest,packDecorations,fallbackEffect,splitFallback,applySearchObjective,resultIdentity,validateRestrictions,evaluateArmor,atomSignature,charmSignature,compareResults,unusedSlotScore,search};
+const api={persistentSolver,excludeDefenseCancellation,HUNTER_DEFENSE,equipmentStats,balanceResistances,modelSeed,fallbackSummary,orderedAtoms,fallbackEffects,finishFreeArmor,excludeFreePattern,completeCountDefense,canFailOrdinaryDraw,isDedicatedFallback,isOrdinaryAtom,validateArmorSelection,PARTS,PART_NAMES,METHOD_NAMES,upgradeSlots,caps,ordinarySlotShapes,generateCharms,equivalentScore,buildModel,reconstruct,validateResult,validateCharm,validateRequest,packDecorations,fallbackEffect,splitFallback,applySearchObjective,resultIdentity,validateRestrictions,evaluateArmor,atomSignature,charmSignature,compareResults,unusedSlotScore,search};
 if(typeof module!=='undefined'&&module.exports)module.exports=api;root.ForgeEngine=api;
 })(globalThis);
