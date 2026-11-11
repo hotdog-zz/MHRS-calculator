@@ -12,7 +12,7 @@ css=(R/'dist/style.css').read_text()
 html=html.replace('<link rel="stylesheet" href="./style.css">','<style>'+css+'</style>')
 icon='data:image/svg+xml;base64,'+b64((R/'dist/mark.svg').read_bytes())
 html=html.replace('./mark.svg',icon)
-for name in ['engine.js','config.js','mod.js','inventory.js','file-import.js','vendor/qrcode.js','vendor/jsQR.js','vendor/lz-string.js','share.js','search-pool.js','augment-sim.js','augment-ui.js','app.js']:
+for name in ['engine.js','config.js','mod.js','inventory.js','file-import.js','vendor/qrcode.js','vendor/jsQR.js','vendor/lz-string.js','share.js','search-pool.js','resource-templates.js','extensions.js','extension-ui.js','augment-sim.js','augment-ui.js','app.js']:
     html=html.replace(f'<script src="./{name}" defer></script>','')
 worker=(R/'dist/vendor/highs.js').read_text()+'\n'+(R/'dist/engine.js').read_text()+'\n'+(R/'dist/config.js').read_text()+'\n'+(R/'dist/mod.js').read_text()+'\n'+(R/'dist/inventory.js').read_text()+'\n'+(R/'dist/worker.js').read_text().split('\n',1)[1]
 embedded='\n<script id="embeddedData" type="application/json">'+(R/'dist/data.json').read_text().replace('<','\\u003c')+'</script>'
@@ -29,6 +29,10 @@ for name in ['vendor/qrcode.js','vendor/jsQR.js','vendor/lz-string.js','share.js
 licenses='\n\n'.join((R/'dist/vendor'/name).read_text() for name in ['qrcode-LICENSE','jsQR-LICENSE','lz-string-LICENSE'])
 embedded+='\n<script id="thirdPartyShareLicenses" type="text/plain">'+safe_script(licenses)+'</script>'
 embedded+='\n<script>'+safe_script((R/'dist/search-pool.js').read_text())+'</script>'
+for name in ['resource-templates.js','extensions.js','extension-ui.js']:
+    embedded+='\n<script>'+safe_script((R/'dist'/name).read_text())+'</script>'
+ext_worker=worker.rsplit((R/'dist/worker.js').read_text().split('\n',1)[1],1)[0]+(R/'dist/resource-templates.js').read_text()+'\n'+(R/'dist/extensions.js').read_text()+'\n'+(R/'dist/extension-worker.js').read_text().split('\n',1)[1]
+embedded+='\n<script id="embeddedExtensionWorker" type="application/octet-stream">'+b64(ext_worker.encode())+'</script>'
 embedded+='\n<script>'+safe_script((R/'dist/augment-sim.js').read_text())+'</script>'
 embedded+='\n<script>'+safe_script((R/'dist/augment-ui.js').read_text())+'</script>'
 sim_worker=(R/'dist/augment-sim.js').read_text()+'\n'+(R/'dist/augment-worker.js').read_text().split('\n',1)[1]
@@ -45,7 +49,10 @@ assert not project_id.search(html.encode())
 standalone=OUT/'SunbreakForge.html';standalone.write_text(html)
 readme=(R/'README.md').read_text()
 (OUT/'README.md').write_text(readme)
-zip_path=OUT/'MHRScalculator.zip'
+version=json.loads((R/'package.json').read_text())['version']
+release=version.split('-',1)[0]
+assert re.fullmatch(r'\d+\.\d+\.\d+',release),'Expected a semantic release version'
+zip_path=OUT/('MHRScalculator-'+release.replace('.','')+'.zip')
 with zipfile.ZipFile(zip_path,'w',zipfile.ZIP_DEFLATED,compresslevel=6) as z:
     z.write(standalone,'MHRScalculator/SunbreakForge.html')
     z.writestr('MHRScalculator/README.md',readme)
@@ -55,10 +62,12 @@ with zipfile.ZipFile(zip_path,'w',zipfile.ZIP_DEFLATED,compresslevel=6) as z:
         if p.is_file():z.write(p,'MHRScalculator/'+p.relative_to(R).as_posix())
     for p in sorted((R/'tests').glob('*')):
         if p.is_file():z.write(p,'MHRScalculator/'+p.relative_to(R).as_posix())
+    for p in sorted((R/'docs').rglob('*')):
+        if p.is_file():z.write(p,'MHRScalculator/'+p.relative_to(R).as_posix())
 with zipfile.ZipFile(zip_path) as z:
     assert z.testzip() is None
     for name in z.namelist():
-        assert not any(v in name for v in ['.git/','.openai/','debug.lp'])
+        assert not any(v in name for v in ['.git/','.openai/','debug.lp','benchmarks/'])
         raw=z.read(name)
         assert not private_host.search(raw),name
         assert not project_id.search(raw),name
