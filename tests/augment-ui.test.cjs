@@ -15,6 +15,11 @@ test('配装运行时不并行启动，非法输入不创建Worker',()=>{
  const {ctx,elements:e,workers}=page();ctx.ForgeSimUI.initialize(D,()=>false);e.get('simStart').onclick();assert.equal(workers.length,0);assert.match(e.get('simStatus').textContent,/先停止配装/);
  ctx.ForgeSimUI.initialize(D,()=>true);e.get('simCount').value='100000000';e.get('simStart').onclick();assert.equal(workers.length,0);assert.match(e.get('simError').textContent,/次数/);
 });
+test('网页结果同时显示未截断点数、实际增长和溢出，并保留原始扩孔词条',()=>{
+ const {ctx,elements:e,workers}=page();ctx.ForgeSimUI.initialize(D);e.get('simPart').value='arm';e.get('simPart').onchange();e.get('simArmorSearch').value='原初';e.get('simArmorSearch').oninput();e.get('simCount').value='1';e.get('simStart').onclick();const w=workers[0],c=S.createContext(D,'Arm:502'),atom=id=>{const row=c.byId.get(id),v=row.values[0];return {atomId:id,category:row.category,cost:row.cost,value:v.value,valueIndex:v.value_index,count:1};},r=S.finalize(c,[{...atom(60),attribute:'defense'},{...atom(149),skillId:c.armor.skills[0].skill_id},atom(141),atom(139)],{});
+ w.onmessage({data:{type:'done',config:w.sent[0].config,stats:{completed:1,matches:1,maxDefense:r.defense,defenseSum:r.defense,attempts:4,terminations:{budget:0,records:0,failures:1}},elapsedMs:1,total:1,page:0,rows:[{...r,count:1}]}});
+ assert.match(e.get('simList').innerHTML,/孔位 4-4-4 · 词条扩孔 \+4 · 实际扩孔 \+2 · 溢出 2点/);assert.match(e.get('simList').innerHTML,/孔位增长 \+3/);assert.match(e.get('simList').innerHTML,/孔位增长 \+1/);assert.match(e.get('simList').innerHTML,/cost 9\/10/);
+});
 test('指令示例、指定技能排序配置与保留结果的即时排序均传入Worker',()=>{
  const {ctx,elements:e,workers}=page();ctx.ForgeSimUI.initialize(D);e.get('simQueryExample').onclick();assert.equal(e.get('simQuery').value,'grade.B >= 1 AND removed = 0');
  e.get('simSortSkillSearch').value='气血';e.get('simSortSkillSearch').oninput();assert.equal(e.get('simSortSkill').value,'200');e.get('simSort').value='specificSkill';e.get('simSortSkillMetric').value='final';e.get('simStart').onclick();const w=workers[0],cfg=w.sent[0].config;assert.equal(cfg.sortSkill,200);assert.equal(cfg.query,'grade.B >= 1 AND removed = 0');assert.equal(e.get('simQuery').disabled,true);

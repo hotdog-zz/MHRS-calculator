@@ -36,6 +36,26 @@ test('技能特化第三步的技能检查失败重试，超预算则正常推�
  const r=S.roll(c,{int:()=>0},{draw:(_,state)=>{steps.push(state.step);if(state.step<2)return {reason:'empty'};if(state.step===2){retries++;return {third:true,effect:effect(c,146,{skillId:skill.id,...(retries===3?{cost:99}:{})})};}return {effect:effect(c,76)};}});
  assert.deepEqual(steps,[0,1,2,2,2,3]);assert.equal(r.termination,'budget');assert.equal(r.atoms.length,1);
 });
+test('扩孔单条与累计溢出都先接受，最终统一截断，记录和费用不变',()=>{
+ const base=S.createContext(D,'Arm:502'),native=base.armor.skills[0].skill_id;
+ for(const slots of [[4,4,2],[4,4,4]]){
+  const c={...base,armor:{...base.armor,slots}},seq=[effect(c,60),effect(c,149,{skillId:native}),effect(c,141),effect(c,139)];let i=0;
+  assert.equal(S.validateEffect(c,[],seq[2]),null);
+  const r=S.roll(c,{int:()=>0},{trace:true,draw:()=>({effect:seq[i++]})});
+  assert.ok(r.trace.slice(0,4).every(t=>t.accepted));assert.equal(r.trace[3].accepted,true);
+  assert.deepEqual(r.atoms.filter(a=>a.category===19).map(a=>[a.value,a.cost]),[[1,6],[3,18]]);
+  assert.equal(r.atoms.length,4);assert.equal(r.cost,9);assert.equal(r.slotPoints,4);
+  assert.equal(r.effectiveSlotPoints,slots[2]===2?2:0);assert.equal(r.overflowSlotPoints,slots[2]===2?2:4);assert.deepEqual(r.slots,[4,4,4]);
+ }
+});
+test('四种模式的原始抽选不受原孔位影响，只在最终应用时产生不同实际增长',()=>{
+ for(const mode of Object.keys(S.MODES)){
+  const a=S.createContext(D,'Arm:502',mode),b={...a,armor:{...a.armor,slots:[4,4,4]}},ra=S.createRng(182,a.armor.budget,mode),rb=S.createRng(182,b.armor.budget,mode);
+  for(let i=0;i<100;i++){
+   const x=S.roll(a,ra),y=S.roll(b,rb);assert.deepEqual(x.atoms,y.atoms);assert.equal(x.cost,y.cost);assert.equal(x.attempts,y.attempts);assert.equal(x.termination,y.termination);assert.equal(x.slotPoints,y.slotPoints);assert.equal(y.effectiveSlotPoints,0);assert.equal(y.overflowSlotPoints,y.slotPoints);
+  }
+ }
+});
 test('容量计算按外来新增记录计数，满容量可继续增加已引入技能，删除不释放原生种类',()=>{
  const base=context(),native=[...base.native.keys()],foreign=D.skills.filter(s=>s.cost===3&&!base.native.has(s.id)).slice(0,5),a=effect(base,144,{skillId:foreign[0].id});
  const records=Array.from({length:5-base.native.size},()=>a);assert.equal(S.validateEffect(base,records,{...a,skillId:foreign[1].id}),'skill');assert.equal(S.validateEffect(base,records,a),null);

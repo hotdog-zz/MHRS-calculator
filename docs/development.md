@@ -24,9 +24,9 @@ python3 build_local.py
 node --test --test-concurrency=1 tests/*.test.cjs
 ```
 
-先打包，再运行涉及离线单文件的检查。打包结果默认写入项目同级的 `deliverables/`，包括 `SunbreakForge.html`、`README.md` 和版本化压缩包。
+先打包，再运行涉及离线单文件的检查。打包结果默认写入项目同级的 `deliverables/`，包括 `SunbreakForge.html`、`README.md` 和两种版本化压缩包。
 
-版本号以 `package.json` 为打包命名来源。压缩包去掉版本号中的点，例如 `0.7.1` 对应 `MHRScalculator-071.zip`；包内根目录保持 `MHRScalculator/`。包中保留使用说明、完整 `docs/`、网页文件、本地启动脚本、测试文件及打包工具；仅 `benchmarks/` 不随用户包分发。测试需要的基准输入请从完整源码仓库获取，运行全部检查应使用完整源码。
+版本号以 `package.json` 为打包命名来源。压缩包去掉版本号中的点，例如 `0.7.1` 对应 `MHRScalculator-071.zip`；包内根目录保持 `MHRScalculator/`。完整包保留项目原文 `LICENSE.txt`、使用说明、完整 `docs/`、网页文件、本地启动脚本、测试文件及打包工具；仅 `benchmarks/` 不随用户包分发。另生成 `MHRScalculator-071-html.zip` 形式的HTML轻量包，只包含同一份 `SunbreakForge.html`、适配后的 `README.md`、顶层 `EquipmentLoadoutsManager.lua`、项目原文 `LICENSE.txt` 和 `THIRD_PARTY_LICENSES.txt`，不重复放入 `dist/`。轻量包的详细文档链接指向GitHub，计算、模拟和手炼概率无需联网。测试需要的基准输入请从完整源码仓库获取，运行全部检查应使用完整源码。
 
 发布时还需同步网页页脚、条件导出版本及库存方案导出中的版本标识。技能扩展功能旁的“试用”标记独立于应用版本号。
 

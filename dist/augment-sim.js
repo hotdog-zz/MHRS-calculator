@@ -15,7 +15,7 @@ function compileQuery(data,text=''){
  function value(){const token=take();check(token!=null,'筛选指令缺少数值或字段');if(/^[-+]?\d/.test(token)){const n=Number(token);check(Number.isFinite(n),'筛选数值无效');return ()=>n;}
   const name=token.toLowerCase();if(tokens[i]==='('){check(['skill','added','removed'].includes(name),'不支持的筛选函数：'+token);take();const arg=take();check(arg!=null,'函数缺少技能参数');const key=/^['"]/.test(arg)?arg.slice(1,-1).replace(/\\(['"\\])/g,'$1'):arg;const id=lookup.get(key)??lookup.get(key.toLowerCase());check(id!=null,'未知技能：'+key);need(')');return r=>skillLevel(r,id,name==='skill'?'final':name);}
   const grade=/^(grade|grade_at_least)\.([dcbas])$/i.exec(token);if(grade){const cost=GRADES[grade[2].toUpperCase()],plus=grade[1].toLowerCase()==='grade_at_least';return r=>count(r,a=>a.value>0&&(plus?a.cost>=cost:a.cost===cost));}
-  const fields=new Map([['defense',r=>r.defense],['defense_delta',r=>r.defenseDelta],['slots',r=>r.slotPoints],['cost',r=>r.cost],['added_cost',r=>r.skillCost],['records',r=>r.atoms.length],['added',r=>r.skillAdds],['removed',r=>count(r,a=>a.value<0)],['删除技能',r=>count(r,a=>a.value<0)],['扣技能',r=>count(r,a=>a.value<0)]]);check(fields.has(name),'未知筛选字段：'+token);return fields.get(name);
+  const fields=new Map([['defense',r=>r.defense],['defense_delta',r=>r.defenseDelta],['slots',r=>r.slotPoints],['effective_slots',r=>r.effectiveSlotPoints],['overflow_slots',r=>r.overflowSlotPoints],['cost',r=>r.cost],['added_cost',r=>r.skillCost],['records',r=>r.atoms.length],['added',r=>r.skillAdds],['removed',r=>count(r,a=>a.value<0)],['删除技能',r=>count(r,a=>a.value<0)],['扣技能',r=>count(r,a=>a.value<0)]]);check(fields.has(name),'未知筛选字段：'+token);return fields.get(name);
  }
  function predicate(){check(++depth<=32,'筛选括号或NOT嵌套过深');let fn;if(is('NOT','!','非')){take();const inner=predicate();fn=r=>!inner(r);}else if(tokens[i]==='('){take();fn=or();need(')');}else {const a=value();if(is('=','==','!=','<>','<','<=','>','>=')){const op=take(),b=value();fn=r=>{const x=a(r),y=b(r);return op==='='||op==='=='?x===y:op==='!='||op==='<>'?x!==y:op==='<'?x<y:op==='<='?x<=y:op==='>'?x>y:x>=y;};}else fn=r=>!!a(r);}depth--;return fn;}
  function and(){let left=predicate();while(is('AND','&&','且')){take();const a=left,b=predicate();left=r=>a(r)&&b(r);}return left;}
@@ -45,7 +45,8 @@ function createContext(data,armorId,mode='normal'){
 }
 function levels(ctx,records){const out=new Map(ctx.native);for(const r of records)if(r.category===20)out.set(r.skillId,(out.get(r.skillId)||0)+r.value);return out;}
 function validateEffect(ctx,records,e){
- if(e.category===19&&e.value>12-sum(ctx.armor.slots))return 'slots';
+ // Slot records retain their full growth and cost during generation. Only the
+ // final slot application saturates at 4-4-4, even if one record already exceeds room.
  if(e.category!==20)return null;
  const current=levels(ctx,records),lv=current.get(e.skillId)||0,s=ctx.skills.get(e.skillId);
  if(e.value<0&&(!ctx.native.has(e.skillId)||lv<=0))return 'skill';
@@ -84,7 +85,8 @@ function finalize(ctx,records,meta){
  const atoms=records.map(r=>({...r})).sort((a,b)=>a.category-b.category||a.cost-b.cost||a.value-b.value),lv=levels(ctx,atoms),resistances={...ctx.armor.resistances};let defense=ctx.armor.defense,points=0,adds=0,skillCost=0;
  for(const r of atoms){if(r.category===13)defense+=r.value;else if([14,15].includes(r.category))resistances[r.attribute]=(resistances[r.attribute]||0)+r.value;else if(r.category===19)points+=r.value;else if(r.category===20&&r.value>0){adds++;skillCost+=r.cost;}}
  const skills=[...lv].filter(([,level])=>level>0).map(([skill_id,level])=>({skill_id,level}));
- return {atoms,cost:sum(atoms.map(r=>r.cost)),defense,defenseDelta:defense-ctx.armor.defense,resistances,slots:upgradeSlots(ctx.armor.slots,points),slotPoints:points,skillAdds:adds,skillCost,skills,...meta};
+ const slots=upgradeSlots(ctx.armor.slots,points),effectiveSlotPoints=sum(slots)-sum(ctx.armor.slots),overflowSlotPoints=Math.max(0,points-effectiveSlotPoints);
+ return {atoms,cost:sum(atoms.map(r=>r.cost)),defense,defenseDelta:defense-ctx.armor.defense,resistances,slots,slotPoints:points,effectiveSlotPoints,overflowSlotPoints,skillAdds:adds,skillCost,skills,...meta};
 }
 function roll(ctx,rng,options={}){
  let state={records:[],cost:0,step:0,failures:0},attempts=0,restarts=0;const trace=options.trace?[]:null,maxAttempts=options.maxAttempts||100000;

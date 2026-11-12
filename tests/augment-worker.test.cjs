@@ -17,6 +17,11 @@ test('大批量抽选可以停止，停止后仍可分页，未完成次数不�
   const page=until(worker,'page');worker.postMessage({type:'page',page:0});assert.equal((await page).stats.completed,r.stats.completed);worker.postMessage({type:'clear'});
  }finally{await worker.terminate();}
 });
+test('离线Worker接受超过容量的扩孔并继续抽选，最终截断且命中统计使用实际增长',async()=>{
+ const data={skills:[],armors:[{id:'overflow-fixture',pool:1,budget:20,slots:[4,4,2],skills:[],defense:100,resistances:{}}],atoms:[{id:69,pool:7,category:13,cost:1,standardWeight:100,values:[{value:1,value_index:0,weight:100}]},{id:139,pool:7,category:19,cost:1,standardWeight:100,values:[{value:3,value_index:0,weight:100}]}],augmentationLottery:[{table_no:7,lot_num:[0,0,100,0]}]},config={armorId:'overflow-fixture',mode:'stable',count:10,limit:1,sort:'slots',seed:42,query:'slots = 15 AND effective_slots = 2 AND overflow_slots = 13'},worker=offlineWorker();
+ try{const done=until(worker,'done');worker.postMessage({type:'start',data,config});const r=await done;assert.equal(r.stats.completed,10);assert.equal(r.stats.matches,10);assert.equal(r.rows.length,1);const row=r.rows[0];assert.equal(row.atoms.length,7);assert.equal(row.atoms.filter(a=>a.category===19).length,5);assert.equal(row.cost,7);assert.equal(row.slotPoints,15);assert.equal(row.effectiveSlotPoints,2);assert.equal(row.overflowSlotPoints,13);assert.deepEqual(row.slots,[4,4,4]);
+ }finally{await worker.terminate();}
+});
 test('离线Worker编译命中指令，按指定技能等级保留并重新排序，错误查看条件不丢结果',async()=>{
  const worker=offlineWorker(),config={...cfg,count:3000,sort:'specificSkill',sortSkill:200,sortSkillMetric:'final',query:'grade.B >= 1 AND removed = 0'};try{
   const done=until(worker,'done');worker.postMessage({type:'start',data:D,config});const r=await done,b=S.createBatch(D,config);while(!b.step()){}assert.equal(r.stats.matches,b.stats.matches);assert.deepEqual(r.rows,b.keep.rows().slice(0,25));

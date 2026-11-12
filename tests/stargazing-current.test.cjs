@@ -1,0 +1,20 @@
+'use strict';
+const test=require('node:test'),assert=require('node:assert/strict'),S=require('../dist/stargazing.js'),H=require('../dist/handcraft.js'),D=require('../dist/data.json'),A=233,B=203;
+const close=(a,b)=>assert.ok(Math.abs(a-b)<1e-8*Math.max(1,b),a+' != '+b);
+function piece(index,id,probabilities=[{mode:'normal',p:.01}]){const base=D.armors.find(a=>a.id===['Head:492','Chest:502','Arm:502','Leg:502'][index]);return {part:base.part,baseId:base.id,pool:6,budget:10,expectedRolls:100,probabilities,goal:{skills:[...base.skills,{skill_id:id,level:1}],minimumChanges:[...base.skills.map(s=>({id:s.skill_id,min:0})),{id,min:1}],slots:base.slots,maxPositiveRecords:7,deleteSkills:false}};}
+const bank=probabilities=>({async query(_base,mode,options){return {p:probabilities[mode][options.minimumChanges[0].id],n:10000000};}});
+test('current groups require two actual copies for identical additions and retain distinct-outcome coupon behavior',async()=>{
+ const b=bank({normal:{[A]:.01,[B]:.02}}),same=await S.currentPlan(D,[piece(0,A),piece(1,A)],{options:{}},b,['normal']),different=await S.currentPlan(D,[piece(0,A),piece(1,B)],{options:{}},b,['normal']);close(same.stargazingRolls,200);close(different.stargazingRolls,116.66666666666667);assert.equal(same.groups[0].families,1);assert.equal(same.groups[0].parts.length,2);
+ const triple=await S.currentPlan(D,[piece(0,A),piece(1,B),piece(2,B)],{options:{}},bank({normal:{[A]:.01,[B]:.01}}),['normal']);close(triple.stargazingRolls,225);
+});
+test('mode selection optimizes corrected group costs rather than retaining a legacy-cheaper grouping',async()=>{
+ const ps={normal:{[A]:.01,[B]:.01},skills:{[A]:.017,[B]:.0001}},pieces=[A,A,B].map((id,i)=>piece(i,id,['normal','skills'].map(mode=>({mode,p:ps[mode][id]})))),legacy=H.optimizeModes(pieces),actual=await S.currentPlan(D,pieces,{options:{}},bank(ps),['normal','skills']);assert.ok(legacy.choices.every(p=>p.mode==='normal'));close(actual.stargazingRolls,150+1/.017);assert.equal(actual.choices.filter(p=>p.mode==='skills').length,1);assert.equal(actual.groups.find(g=>g.mode==='normal').parts.length,2);assert.equal(actual.stats.algorithm,'mode-subset-dynamic-programming');
+});
+function quotaMean(counts,ps){const memo=new Map();function visit(left){if(left.every(n=>!n))return 0;const k=left.join(',');if(memo.has(k))return memo.get(k);let numerator=1,rate=0;for(let i=0;i<left.length;i++)if(left[i]){const next=left.slice();next[i]--;rate+=ps[i];numerator+=ps[i]*visit(next);}const value=numerator/rate;memo.set(k,value);return value;}return visit(counts);}
+test('subset mode planning agrees with full enumeration and an independent count-vector recurrence',async()=>{
+ let seed=713;const random=()=>((seed=(Math.imul(seed,1664525)+1013904223)>>>0)/2**32);for(let t=0;t<20;t++){const modes=['normal','skills','slots'],ids=Array.from({length:2+t%3},()=>random()<.5?A:B),ps=Object.fromEntries(modes.map(mode=>[mode,{[A]:(1+Math.floor(random()*50))/1000,[B]:(1+Math.floor(random()*50))/1000}])),pieces=ids.map((id,i)=>piece(i,id,modes.map(mode=>({mode,p:ps[mode][id]}))));let best=Infinity;const choices=[];
+  function enumerate(i){if(i<ids.length){for(const mode of modes){choices[i]=mode;enumerate(i+1);}return;}let cost=0;for(const mode of modes){const counts=[0,0];for(let j=0;j<ids.length;j++)if(choices[j]===mode)counts[ids[j]===A?0:1]++;cost+=quotaMean(counts,[ps[mode][A],ps[mode][B]]);}best=Math.min(best,cost);}enumerate(0);const actual=await S.currentPlan(D,pieces,{options:{}},bank(ps),modes);close(actual.stargazingRolls,best);assert.ok(actual.stats.groupEvaluations<=93);}
+});
+test('equivalence with identical restrictions cannot invent savings from relabeling duplicate targets',async()=>{
+ const pieces=[A,A,B].map((id,i)=>piece(i,id)),input={pieces,stargazingGroups:[],placement:[],expectedRolls:300},out=await S.evaluate(D,input,{options:{}},bank({normal:{[A]:.01,[B]:.01}}),{modes:['normal'],decos:'all'});close(out.stargazingRolls,225);close(out.equivalentStargazing.expectedRolls,225);assert.deepEqual(out.equivalentStargazing.assignment,Object.fromEntries(out.pieces.map(p=>[p.part,'normal'])));
+});

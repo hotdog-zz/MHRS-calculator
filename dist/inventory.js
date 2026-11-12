@@ -31,7 +31,7 @@ function decodeArmor(data,base,item){
   if(!t.Id)continue;const raw=data.atoms.find(a=>a.pool===base.pool&&a.id===t.Id),v=raw?.values.find(v=>v.value_index===t.ValueIndex);check(raw&&v,'无法识别既有炼化词条 '+t.Id+'／'+t.ValueIndex);
   const atom={atomId:t.Id,value:v.value,valueIndex:t.ValueIndex,count:1};cost+=raw.cost;
   if(raw.category===20){const id=M.skillFromGame(t.SkillId);check(data.skills.some(s=>s.id===id),'既有炼化技能未知');atom.skillId=id;levels[id]=(levels[id]||0)+v.value;if(v.value>0){skillAdds+=v.value;skillAddCost+=Math.max(0,raw.cost);}}
-  else if(raw.category===19){check(v.value>=0&&v.value<=12-base.slots.reduce((a,b)=>a+b,0),'单条既有孔位增长超过原始容量');points+=v.value;slotAdds++;}
+  else if(raw.category===19){check(Number.isInteger(v.value)&&v.value>=0,'既有孔位增长无效');points+=v.value;slotAdds++;}
   else if(raw.category===13){atom.attribute='defense';defense+=v.value;}
   else if(raw.category===14||raw.category===15){atom.attribute=['fire','water','thunder','ice','dragon'][Math.floor((raw.id-89)/10)];check(atom.attribute,'耐性词条未知');res[atom.attribute]+=v.value;}
   else throw new Error('暂不能计算既有词条类型 '+raw.category);
@@ -130,8 +130,8 @@ function exportPlan(data,stock,template,result,request,{index=1,now=Date.now(),n
  const references=[r.owned.weapon,...E.PARTS.map(p=>r.owned.armors[p]),reference(coral),r.owned.charm];
  let insect=null;if(weapon.base.type==='insect_glaive'){const matches=stock.entries.filter(e=>e.kind==='insect'&&e.item.InventoryIndex===weapon.item.PairInsectInventoryIndex),e=matches.length===1?matches[0]:null;check(e,'请先在游戏中为该操虫棍配好已有猎虫，再重新导出库存');insect=reference(e);}
  const owners=[r.weaponId,...r.pieces.map(p=>p.id),null,'charm'],slotDecorations=owners.map(owner=>{const list=[0,0,0];if(owner)for(const p of r.placement.filter(p=>p.owner===owner))if(p.decorationId)list[p.index]=M.decoToGame(p.decorationId);return list;});
- const displayName=String(name??'已有装备配装').trim();check(displayName&&displayName.length<=70,'名称需要1至70个字符');
- const weaponType=mod.uiInfo.weaponType,payload={application:PLAN,version:1,forgeVersion:'0.7.1',inventoryId:stock.id,references,insect,slotDecorations,mySetInfo:{...clone(mod.mySetInfo),Name:displayName,IsUsing:true},weaponInfo:{idVal:weapon.item.IdVal,name:weapon.base.name,type:weaponType},displayName};
+ const displayName=name===undefined?((mod.mySetInfo.Name||'').trim()||'已有装备配装').slice(0,70):String(name).trim();check(displayName&&displayName.length<=70,'名称需要1至70个字符');
+ const weaponType=mod.uiInfo.weaponType,payload={application:PLAN,version:1,forgeVersion:'0.8.12',inventoryId:stock.id,references,insect,slotDecorations,mySetInfo:{...clone(mod.mySetInfo),Name:displayName,IsUsing:true},weaponInfo:{idVal:weapon.item.IdVal,name:weapon.base.name,type:weaponType},displayName};
  return {payload,filename:'owned_'+integer(index,'配装栏位',1,224)+'_'+M.base62(Math.floor(now/1000))+'.json',directory:'reframework/data/EquipmentLoadouts/OwnedPlans/'+weaponType+'/'};
 }
 // Portable presets describe equipment values without requiring any inventory identity.

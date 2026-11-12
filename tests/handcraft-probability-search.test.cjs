@@ -1,0 +1,9 @@
+'use strict';
+const test=require('node:test'),assert=require('node:assert/strict'),path=require('node:path'),D=require('../dist/data.json'),H=require('../dist/handcraft.js'),P=require('../dist/probability.js'),C=require('../dist/config.js'),M=require('../dist/mod.js'),I=require('../dist/inventory.js'),{fixture}=require('./inventory-fixture.cjs');
+test('probability search escapes the four-pending-piece seed by redistributing capabilities across native layouts',async()=>{
+ const allowed=new Set(['Head:492','Chest:502','Arm:502','Waist:502','Waist:495','Leg:502']),data={...D,armors:D.armors.filter(a=>allowed.has(a.id))},{raw}=fixture(),charmRow=raw.items.find(r=>r.item.IdType===3);assert.ok(charmRow);
+ charmRow.item.TalismanSkillIdList=['狂化','匠'].map(name=>M.skillToGame(D.skills.find(s=>s.name===name).id));charmRow.item.TalismanSkillLvList=[2,3];charmRow.item.TalismanDecoSlotNumList=[0,0,3,0,0];charmRow.fingerprint=I.fingerprint(charmRow.item);raw.items=[charmRow];
+ const q=C.normalize(data,{weaponId:'DualBlades:481',skills:[[16,5],[6,3],[7,3],[9,3],[10,3],[11,3],[100,3],[103,3],[200,3],[206,3],[218,3],[219,3],[226,1],[232,3],[233,3],[225,2],[65,1],[223,1]].map(([id,level])=>({id,level})),options:{sex:'FemaleOnly',rank:'all',augment:true,deleteSkills:true,defenseFallback:true}}),highs=await require('../dist/vendor/highs.js')({locateFile:f=>path.resolve(__dirname,'../dist/vendor',f)}),loader=require('./probability-loader.cjs'),bank=P.createBank(data,loader.index,async g=>loader.load(g));
+ const out=await H.analyze(data,q,raw,highs,bank,{seconds:15,skeletons:30,limit:5,source:'all',decos:'owned'});
+ assert.ok(out.results.length);assert.ok(out.individualBestRolls<820,JSON.stringify({cost:out.individualBestRolls,results:out.results.length}));assert.ok(out.results[0].stargazingRolls<540);assert.ok(out.masterSolves>out.masterBuilds);for(const r of out.results)for(const s of q.skills)assert.ok(r.totals[s.id]>=s.level);
+});
