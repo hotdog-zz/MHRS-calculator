@@ -1,6 +1,6 @@
 {
   "name": "sunbreak-armor-forge",
-  "version": "0.7.1",
+  "version": "0.8.12",
   "private": true,
   "scripts": {
     "test": "node --test tests/*.test.cjs"
