@@ -6,4 +6,5 @@
 - [技能扩展分析](skill-extensions.md)：资源模板、包含关系、候选验证和当前统计限制。
 - [游戏 Mod 与装备箱](mod-integration.md)：模板保留范围、库存引用、文件目录及清理保护。
 - [炼化模拟](augment-simulator.md)：保留结果、命中指令与统计口径。
+- [手炼指导](handcraft-guidance.md)：库存与待炼部位、预计次数目标、概率口径，以及路线去重与等价观星分配的区别。
 - [开发与本地打包](development.md)：源码结构、检查方式和压缩包命名。

@@ -185,7 +185,7 @@ function exportMod(index){
   if(weapon.type!==source.type)throw new Error('请先导入'+weapon.typeName+'模板后再导出');
   pendingModExport={template:modTemplate,result:found[index],request:activeRequest,index:index+1};
   $('ownedExportSlotWrap').classList.remove('hidden');$('ownedExportSlot').value=String(index+1);
-  $('modExportName').value=((modTemplate.mySetInfo.Name.trim()||'工房配装')+' · '+(index+1)).slice(0,70);$('modExportError').classList.add('hidden');$('modExportDialog').showModal();$('modExportName').focus();
+  $('modExportName').value=(modTemplate.mySetInfo.Name.trim()||'工房配装').slice(0,70);$('modExportError').classList.add('hidden');$('modExportDialog').showModal();$('modExportName').focus();
  }
  catch(e){toast(e.message);if(!modTemplate&&!busy)openModImport();}
 }
@@ -336,7 +336,7 @@ function acceptTemplateLocks(){
 let inventoryStock=null,inventoryStore=null,inventoryPageIndex=0;
 function inventoryWeapon(){return inventoryStock&&state.ownedInventoryId===inventoryStock.id?inventoryStock.byKey.get(state.ownedWeaponKey):undefined;}
 function inventoryRampage(){const id=inventoryWeapon()?.item.HyakuryuDecoId||0;return id===1048576?0:id;}
-function showPage(page){for(const name of ['planner','inventory','sim']){$(name+'Page')?.classList.toggle('hidden',name!==page);$(name+'Tab')?.setAttribute?.('aria-pressed',String(name===page));}if(page==='inventory')renderInventory();}
+function showPage(page){for(const name of ['planner','inventory','sim','guide']){$(name+'Page')?.classList.toggle('hidden',name!==page);$(name+'Tab')?.setAttribute?.('aria-pressed',String(name===page));}if(page==='inventory')renderInventory();if(page==='guide')globalThis.ForgeHandcraftUI?.refresh();}
 function showInventoryPage(open){showPage(open?'inventory':'planner');}
 function syncOwnedMode(){
  $('ownedOnly').checked=!!state.options.ownedOnly;
@@ -439,6 +439,7 @@ async function init(){
   try{state=ForgeConfig.normalize(data,saved||state);}catch{state=ForgeConfig.normalize(data,state);}
   await initializeInventory();
   globalThis.ForgeSimUI?.initialize(data,()=>!busy);
+  globalThis.ForgeHandcraftUI?.initialize(data,{context:()=>({request:ForgeConfig.normalize(data,state),inventory:inventoryStock?.raw}),canStart:()=>!busy&&!globalThis.ForgeSimUI?.isRunning(),busy:value=>{setBusy(value);if(value)$('cancel').classList.add('hidden');},toast,showPage});
   globalThis.ForgeExtensionUI?.initialize(data,{
    context:()=>({request:ForgeConfig.normalize(data,state),inventory:inventoryStock?.raw,initialResults:found}),
    canStart:()=>!busy&&!globalThis.ForgeSimUI?.isRunning(),
@@ -507,7 +508,7 @@ document.querySelectorAll('.controls input,.controls select,.controls button').f
 init();
 
 $('inventoryCategories').onclick=e=>{const button=e.target.closest('[data-inventory-kind]');if(!button)return;$('inventoryKind').value=button.dataset.inventoryKind;inventoryPageIndex=0;renderInventory();};
-$('simTab').onclick=()=>showPage('sim');$('plannerTab').onclick=()=>showInventoryPage(false);$('inventoryTab').onclick=()=>showInventoryPage(true);$('downloadInventoryLua').onclick=downloadInventoryLua;
+$('simTab').onclick=()=>showPage('sim');$('guideTab').onclick=()=>showPage('guide');$('plannerTab').onclick=()=>showInventoryPage(false);$('inventoryTab').onclick=()=>showInventoryPage(true);$('downloadInventoryLua').onclick=downloadInventoryLua;
 $('ownedOnly').onchange=()=>setOwnedMode($('ownedOnly').checked);$('ownedWeaponSelect').onchange=()=>{state.ownedWeaponKey=$('ownedWeaponSelect').value;state.rampageDecorationId=inventoryRampage();renderRampage();changed();};
 $('inventoryDrop').onclick=()=>$('inventoryFile').click();$('inventoryFile').onchange=()=>{if($('inventoryFile').files?.length===1)importInventoryFile($('inventoryFile').files[0]);$('inventoryFile').value='';};
 for(const name of ['ondragover','ondragenter'])$('inventoryDrop')[name]=e=>{e.preventDefault();$('inventoryDrop').classList.add('drag-over');};$('inventoryDrop').ondragleave=()=>$('inventoryDrop').classList.remove('drag-over');$('inventoryDrop').ondrop=e=>{e.preventDefault();$('inventoryDrop').classList.remove('drag-over');if(e.dataTransfer?.files?.length===1)importInventoryFile(e.dataTransfer.files[0]);else toast('每次请选择一份库存JSON');};

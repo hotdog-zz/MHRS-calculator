@@ -1,0 +1,281 @@
+{
+  "source": "Independent research query-cache.cjs, cumulative counts after pool6/pool13 fourth round",
+  "rows": [
+    {
+      "armorId": "Leg:502",
+      "mode": "normal",
+      "options": {},
+      "expected": {
+        "p": 1,
+        "se": 0,
+        "n": 2000000
+      }
+    },
+    {
+      "armorId": "Leg:502",
+      "mode": "normal",
+      "options": {
+        "minimumChanges": [
+          {
+            "id": 231,
+            "min": 1
+          }
+        ],
+        "minRawSlots": 1,
+        "maxRemoved": 0
+      },
+      "expected": {
+        "p": 0.00017236956521739114,
+        "se": 0.0000019321630384947183,
+        "n": 2000000
+      }
+    },
+    {
+      "armorId": "Leg:502",
+      "mode": "normal",
+      "options": {
+        "minimumChanges": [
+          {
+            "id": 223,
+            "min": 1
+          }
+        ],
+        "minSlots": [
+          4,
+          4
+        ],
+        "maxRemoved": 1,
+        "protectedSkills": [
+          232
+        ]
+      },
+      "expected": {
+        "p": 0.005647166666666686,
+        "se": 0.000030500897598586305,
+        "n": 2000000
+      }
+    },
+    {
+      "armorId": "Leg:502",
+      "mode": "normal",
+      "options": {
+        "minimumChanges": [
+          {
+            "id": 231,
+            "min": 1
+          },
+          {
+            "id": 223,
+            "min": 1
+          }
+        ],
+        "maxPositiveRecords": 2
+      },
+      "expected": {
+        "p": 0.000007318840579710144,
+        "se": 2.3023530126991963e-7,
+        "n": 2000000
+      }
+    },
+    {
+      "armorId": "Leg:502",
+      "mode": "normal",
+      "options": {
+        "minSlots": [
+          4,
+          4,
+          4
+        ]
+      },
+      "expected": {
+        "p": 0.0001155,
+        "se": 0.0000075989032021075255,
+        "n": 2000000
+      }
+    },
+    {
+      "armorId": "Leg:502",
+      "mode": "skills",
+      "options": {},
+      "expected": {
+        "p": 1,
+        "se": 0,
+        "n": 2000000
+      }
+    },
+    {
+      "armorId": "Leg:502",
+      "mode": "skills",
+      "options": {
+        "minimumChanges": [
+          {
+            "id": 231,
+            "min": 1
+          }
+        ],
+        "minRawSlots": 1,
+        "maxRemoved": 0
+      },
+      "expected": {
+        "p": 6.521739130434783e-7,
+        "se": 1.190692281675174e-7,
+        "n": 2000000
+      }
+    },
+    {
+      "armorId": "Leg:502",
+      "mode": "skills",
+      "options": {
+        "minimumChanges": [
+          {
+            "id": 223,
+            "min": 1
+          }
+        ],
+        "minSlots": [
+          4,
+          4
+        ],
+        "maxRemoved": 1,
+        "protectedSkills": [
+          232
+        ]
+      },
+      "expected": {
+        "p": 0.00168,
+        "se": 0.000016690979599771842,
+        "n": 2000000
+      }
+    },
+    {
+      "armorId": "Leg:502",
+      "mode": "skills",
+      "options": {
+        "minimumChanges": [
+          {
+            "id": 231,
+            "min": 1
+          },
+          {
+            "id": 223,
+            "min": 1
+          }
+        ],
+        "maxPositiveRecords": 2
+      },
+      "expected": {
+        "p": 0.00004856521739130435,
+        "se": 5.92235236189343e-7,
+        "n": 2000000
+      }
+    },
+    {
+      "armorId": "Leg:502",
+      "mode": "skills",
+      "options": {
+        "minSlots": [
+          4,
+          4,
+          4
+        ]
+      },
+      "expected": {
+        "p": 0,
+        "se": 0,
+        "n": 2000000
+      }
+    },
+    {
+      "armorId": "Leg:502",
+      "mode": "slots",
+      "options": {},
+      "expected": {
+        "p": 1,
+        "se": 0,
+        "n": 2000000
+      }
+    },
+    {
+      "armorId": "Leg:502",
+      "mode": "slots",
+      "options": {
+        "minimumChanges": [
+          {
+            "id": 231,
+            "min": 1
+          }
+        ],
+        "minRawSlots": 1,
+        "maxRemoved": 0
+      },
+      "expected": {
+        "p": 2.826086956521739e-7,
+        "se": 7.838129472615875e-8,
+        "n": 2000000
+      }
+    },
+    {
+      "armorId": "Leg:502",
+      "mode": "slots",
+      "options": {
+        "minimumChanges": [
+          {
+            "id": 223,
+            "min": 1
+          }
+        ],
+        "minSlots": [
+          4,
+          4
+        ],
+        "maxRemoved": 1,
+        "protectedSkills": [
+          232
+        ]
+      },
+      "expected": {
+        "p": 0.002139166666666666,
+        "se": 0.000018850752554606397,
+        "n": 2000000
+      }
+    },
+    {
+      "armorId": "Leg:502",
+      "mode": "slots",
+      "options": {
+        "minimumChanges": [
+          {
+            "id": 231,
+            "min": 1
+          },
+          {
+            "id": 223,
+            "min": 1
+          }
+        ],
+        "maxPositiveRecords": 2
+      },
+      "expected": {
+        "p": 0,
+        "se": 0,
+        "n": 2000000
+      }
+    },
+    {
+      "armorId": "Leg:502",
+      "mode": "slots",
+      "options": {
+        "minSlots": [
+          4,
+          4,
+          4
+        ]
+      },
+      "expected": {
+        "p": 0.002533,
+        "se": 0.00003554281862064403,
+        "n": 2000000
+      }
+    }
+  ]
+}

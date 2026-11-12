@@ -162,7 +162,7 @@ function exportLoadout(data,template,result,request,engine,{index=1,now=Date.now
   const oldBackup=mod.backupList[i];
   mod.backupList[i]={IdVal:item.IdVal,DecoIdList:[...item.DecoIdList],HyakuryuDecoId:item.HyakuryuDecoId,BowgunCustomizeType:i===0?item.BowgunCustomizeType:0,InsectIdVal:i===0?oldBackup.InsectIdVal:-1,InsectInventoryIndex:i===0?oldBackup.InsectInventoryIndex:-1};
  }
- const displayName=name===undefined?((mod.mySetInfo.Name||'工房配装').trim()+' · '+index).slice(0,70):String(name).trim();
+ const displayName=name===undefined?((mod.mySetInfo.Name||'').trim()||'工房配装').slice(0,70):String(name).trim();
  if(!displayName)throw new Error('请填写配装名称');
  if(displayName.length>70)throw new Error('配装名称最多70个字符');
  mod.mySetInfo.Name=displayName;mod.mySetInfo.IsUsing=true;mod.uiInfo={displayName,weaponName:weapon.name,weaponType:modWeaponType(weapon)};

@@ -8,6 +8,12 @@ test('逻辑优先级、括号、NOT与各比较符和中文别名可组合',()=
  const r=row([{cost:9,value:1}]);for(const text of ['(grade.B = 1 OR grade.A > 0) AND NOT removed','grade.B == 1 && !(removed != 0)','grade.B >= 1 且 删除技能 = 0','records <> 0 AND defense_delta <= -2 AND slots > 2','cost >= 9 AND added_cost = 9 AND added = 1','grade.A > 0 OR grade.B > 0 AND removed = 0'])assert.equal(S.compileQuery(D,text)(r),true,text);
  assert.equal(S.compileQuery(D,'grade.A > 0 AND (grade.B > 0 OR removed > 0)')(r),false);
 });
+test('扩孔查询区分原始总点数、最终实际增长与溢出，截断不改变费用及记录',()=>{
+ const base=S.createContext(D,'Arm:502'),slot=(id,value,cost)=>({atomId:id,category:19,cost,value,valueIndex:0,count:1}),r=S.finalize(base,[slot(141,3,18),slot(139,1,6)],{});
+ assert.equal(r.slotPoints,4);assert.equal(r.effectiveSlotPoints,2);assert.equal(r.overflowSlotPoints,2);assert.equal(r.cost,24);assert.equal(r.atoms.length,2);
+ assert.ok(S.compileQuery(D,'slots = 4 AND effective_slots = 2 AND overflow_slots = 2')(r));
+ assert.equal(S.compileQuery(D,'slots = 2')(r),false);assert.equal(S.compileQuery(D,'effective_slots > 2')(r),false);
+});
 test('按技能名称、英文名称和ID统计新增、删除与包含原生的最终等级',()=>{
  const r=row([{skillId:0,cost:15,value:1},{skillId:5,cost:-10,value:-1}],[{skill_id:0,level:3},{skill_id:5,level:2}]);
  for(const q of ['added("攻击") >= 1 AND skill("看破") >= 2','skill(0) = 3 AND removed(5) = 1',"skill('Attack Boost') = 3 AND added(攻击) = 1"] )assert.equal(S.compileQuery(D,q)(r),true,q);
