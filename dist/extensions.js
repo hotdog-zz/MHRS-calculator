@@ -103,7 +103,8 @@ async function analyzeFocused(originalData,originalRequest,highs,config,progress
    try{accept(raw);}catch(e){invalid=e;attempts.at(-1).validation=e.message;}
    if(invalid){
     if(invalid.code==='POST_FALLBACK_INVALID'&&E.excludeFreePattern(currentModel,invalid.armorId,raw))continue;
-    if(invalid.code==='DEFENSE_CANCELLED'&&E.excludeDefenseCancellation(currentModel,invalid.armorId))continue;
+    if(invalid.code==='DEFENSE_CANCELLED'&&invalid.defenseFailure==='order'&&E.excludeFreePattern(currentModel,invalid.armorId,raw,true))continue;
+    if(invalid.code==='DEFENSE_CANCELLED'&&invalid.defenseFailure!=='order'&&E.excludeDefenseCancellation(currentModel,invalid.armorId,invalid.defensePhase==='before-fallback'))continue;
    }
    let changed=false;for(const [k,v] of cuts)if(!addedCuts.has(k)){cutResource(currentModel,v);addedCuts.add(k);changed=true;}
    if(!changed&&raw.Status==='Optimal')break;

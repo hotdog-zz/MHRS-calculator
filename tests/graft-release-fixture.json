@@ -1,0 +1,1125 @@
+{
+  "request": {
+    "weaponId": "Bow:427",
+    "skills": [
+      {
+        "id": 16,
+        "level": 5
+      },
+      {
+        "id": 6,
+        "level": 3
+      },
+      {
+        "id": 7,
+        "level": 3
+      },
+      {
+        "id": 10,
+        "level": 3
+      },
+      {
+        "id": 49,
+        "level": 3
+      },
+      {
+        "id": 200,
+        "level": 3
+      },
+      {
+        "id": 203,
+        "level": 3
+      },
+      {
+        "id": 212,
+        "level": 3
+      },
+      {
+        "id": 218,
+        "level": 3
+      },
+      {
+        "id": 232,
+        "level": 3
+      },
+      {
+        "id": 233,
+        "level": 3
+      },
+      {
+        "id": 5,
+        "level": 2
+      },
+      {
+        "id": 51,
+        "level": 2
+      },
+      {
+        "id": 216,
+        "level": 2
+      },
+      {
+        "id": 219,
+        "level": 2
+      },
+      {
+        "id": 225,
+        "level": 2
+      },
+      {
+        "id": 28,
+        "level": 1
+      },
+      {
+        "id": 65,
+        "level": 1
+      },
+      {
+        "id": 205,
+        "level": 1
+      },
+      {
+        "id": 223,
+        "level": 1
+      },
+      {
+        "id": 227,
+        "level": 1
+      }
+    ],
+    "options": {
+      "sex": "FemaleOnly",
+      "rank": "all",
+      "augment": true,
+      "deleteSkills": true,
+      "defenseFallback": true,
+      "ownedOnly": false,
+      "fixedCharms": true,
+      "fixedArmors": {
+        "head": {
+          "id": "Head:495"
+        },
+        "chest": {
+          "id": "Chest:502"
+        },
+        "arm": {
+          "id": "Arm:502"
+        },
+        "waist": {
+          "id": "Waist:506"
+        },
+        "leg": {
+          "id": "Leg:502"
+        }
+      },
+      "augmentLimits": {
+        "head": 7,
+        "chest": 7,
+        "arm": 7,
+        "waist": 7,
+        "leg": 7
+      },
+      "fixedCharm": {
+        "id": "specified-bow",
+        "name": "狂化2业铠1s411",
+        "method": "vigor",
+        "skills": [
+          {
+            "skill_id": 225,
+            "level": 2
+          },
+          {
+            "skill_id": 203,
+            "level": 1
+          }
+        ],
+        "slots": [
+          4,
+          1,
+          1
+        ]
+      }
+    }
+  },
+  "inventory": {
+    "format": "Sunbreak Forge Inventory",
+    "version": 1,
+    "exportId": "SBFI1-BowScreenshot-1",
+    "exportedAt": 1794614400,
+    "items": [],
+    "decorations": [],
+    "sets": []
+  },
+  "cfg": {
+    "seconds": 60,
+    "limit": 5,
+    "skeletons": 30,
+    "modes": [
+      "normal",
+      "skills",
+      "slots"
+    ],
+    "source": "all",
+    "decos": "all"
+  },
+  "route": {
+    "id": "bow-goal:Head:495|bow-goal:Chest:502|bow-goal:Arm:502|bow-goal:Waist:506|bow-goal:Leg:502|[false,null,\"vigor\",[[225,2],[203,1]],[4,1,1]]",
+    "weaponId": "Bow:427",
+    "inventoryId": "SBFI1-BowScreenshot-1",
+    "stargazingModel": "pool6-exclusive-shared-stream",
+    "stargazingRolls": 37247.52860951633,
+    "stargazingGroups": [
+      {
+        "mode": "normal",
+        "pool": 6,
+        "budget": 10,
+        "shared": true,
+        "probabilities": [
+          0.00017185714285714281,
+          0.0001737391304347826
+        ],
+        "parts": [
+          "head",
+          "arm"
+        ],
+        "expectedRolls": 8680.992402640728,
+        "probabilitySum": 0.00034559627329192543
+      },
+      {
+        "mode": "skills",
+        "pool": 6,
+        "budget": 10,
+        "shared": true,
+        "probabilities": [
+          0.000041167984189723304,
+          0.0009870384615384615,
+          0.00007973913043478257
+        ],
+        "parts": [
+          "chest",
+          "waist",
+          "leg"
+        ],
+        "expectedRolls": 28566.536206875604,
+        "probabilitySum": 0.0011079455761629675
+      }
+    ],
+    "stargazingIndividualRolls": 49419.2886502505,
+    "modeOptimization": {
+      "totalCombinations": 243,
+      "evaluated": 7,
+      "nodes": 16,
+      "pruned": 8,
+      "groupEvaluations": 48
+    },
+    "stargazingValid": true,
+    "pieces": [
+      {
+        "id": "bow-goal:Head:495",
+        "part": "head",
+        "name": "堕天头盔",
+        "baseId": "Head:495",
+        "source": "craft",
+        "goal": {
+          "minimumChanges": [
+            {
+              "id": 233,
+              "min": 0
+            },
+            {
+              "id": 5,
+              "min": 0
+            },
+            {
+              "id": 218,
+              "min": 0
+            },
+            {
+              "id": 203,
+              "min": 1
+            }
+          ],
+          "skills": [
+            {
+              "skill_id": 233,
+              "level": 1
+            },
+            {
+              "skill_id": 5,
+              "level": 2
+            },
+            {
+              "skill_id": 218,
+              "level": 1
+            },
+            {
+              "skill_id": 203,
+              "level": 1
+            }
+          ],
+          "slots": [
+            4,
+            2,
+            1
+          ],
+          "minRawSlots": 1,
+          "maxPositiveRecords": 7,
+          "maxRecords": 7,
+          "deleteSkills": true
+        },
+        "pool": 6,
+        "budget": 10,
+        "mode": "normal",
+        "probability": {
+          "mode": "normal",
+          "p": 0.00017185714285714281,
+          "se": 0.000002019175399988413,
+          "n": 2000000,
+          "support": 7218,
+          "effectiveHits": 7217.999999999996,
+          "sparse": false
+        },
+        "probabilities": [
+          {
+            "mode": "normal",
+            "p": 0.00017185714285714281,
+            "se": 0.000002019175399988413,
+            "n": 2000000,
+            "support": 7218,
+            "effectiveHits": 7217.999999999996,
+            "sparse": false
+          },
+          {
+            "mode": "skills",
+            "p": 0.0000016190476190476186,
+            "se": 1.96335025344106e-7,
+            "n": 2000000,
+            "support": 68,
+            "effectiveHits": 67.99999999999997,
+            "sparse": true
+          },
+          {
+            "mode": "slots",
+            "p": 6.666666666666666e-7,
+            "se": 1.25987275749552e-7,
+            "n": 2000000,
+            "support": 28,
+            "effectiveHits": 28,
+            "sparse": true
+          }
+        ],
+        "expectedRolls": 5818.7863674147975,
+        "skills": [
+          {
+            "skill_id": 5,
+            "level": 2
+          },
+          {
+            "skill_id": 203,
+            "level": 1
+          },
+          {
+            "skill_id": 218,
+            "level": 1
+          },
+          {
+            "skill_id": 233,
+            "level": 1
+          }
+        ],
+        "slots": [
+          4,
+          2,
+          1
+        ],
+        "rarity": 10,
+        "individualBestMode": "normal",
+        "individualProbability": {
+          "mode": "normal",
+          "p": 0.00017185714285714281,
+          "se": 0.000002019175399988413,
+          "n": 2000000,
+          "support": 7218,
+          "effectiveHits": 7217.999999999996,
+          "sparse": false
+        },
+        "stargazingMode": "normal",
+        "stargazingProbability": {
+          "mode": "normal",
+          "p": 0.00017185714285714281,
+          "se": 0.000002019175399988413,
+          "n": 2000000,
+          "support": 7218,
+          "effectiveHits": 7217.999999999996,
+          "sparse": false
+        }
+      },
+      {
+        "id": "bow-goal:Chest:502",
+        "part": "chest",
+        "name": "原初铠甲",
+        "baseId": "Chest:502",
+        "source": "craft",
+        "goal": {
+          "minimumChanges": [
+            {
+              "id": 232,
+              "min": 0
+            },
+            {
+              "id": 219,
+              "min": -1
+            },
+            {
+              "id": 203,
+              "min": 1
+            },
+            {
+              "id": 233,
+              "min": 1
+            }
+          ],
+          "skills": [
+            {
+              "skill_id": 232,
+              "level": 1
+            },
+            {
+              "skill_id": 203,
+              "level": 1
+            },
+            {
+              "skill_id": 233,
+              "level": 1
+            }
+          ],
+          "slots": [
+            4,
+            4,
+            2
+          ],
+          "minRawSlots": 0,
+          "maxPositiveRecords": 7,
+          "maxRecords": 7,
+          "deleteSkills": true
+        },
+        "pool": 6,
+        "budget": 10,
+        "mode": "skills",
+        "probability": {
+          "mode": "skills",
+          "p": 0.000041167984189723304,
+          "se": 2.8374680806616603e-7,
+          "n": 2000000,
+          "support": 20831,
+          "effectiveHits": 20830.999999999985,
+          "sparse": false
+        },
+        "probabilities": [
+          {
+            "mode": "normal",
+            "p": 0.0000019644268774703555,
+            "se": 6.248016704804848e-8,
+            "n": 2000000,
+            "support": 992,
+            "effectiveHits": 988.0359999999997,
+            "sparse": false
+          },
+          {
+            "mode": "skills",
+            "p": 0.000041167984189723304,
+            "se": 2.8374680806616603e-7,
+            "n": 2000000,
+            "support": 20831,
+            "effectiveHits": 20830.999999999985,
+            "sparse": false
+          },
+          {
+            "mode": "slots",
+            "p": 1.4822134387351778e-7,
+            "se": 1.7114805645373195e-8,
+            "n": 2000000,
+            "support": 75,
+            "effectiveHits": 74.99999999999999,
+            "sparse": true
+          }
+        ],
+        "expectedRolls": 24290.720560702808,
+        "skills": [
+          {
+            "skill_id": 203,
+            "level": 1
+          },
+          {
+            "skill_id": 232,
+            "level": 1
+          },
+          {
+            "skill_id": 233,
+            "level": 1
+          }
+        ],
+        "slots": [
+          4,
+          4,
+          2
+        ],
+        "rarity": 10,
+        "individualBestMode": "skills",
+        "individualProbability": {
+          "mode": "skills",
+          "p": 0.000041167984189723304,
+          "se": 2.8374680806616603e-7,
+          "n": 2000000,
+          "support": 20831,
+          "effectiveHits": 20830.999999999985,
+          "sparse": false
+        },
+        "stargazingMode": "skills",
+        "stargazingProbability": {
+          "mode": "skills",
+          "p": 0.000041167984189723304,
+          "se": 2.8374680806616603e-7,
+          "n": 2000000,
+          "support": 20831,
+          "effectiveHits": 20830.999999999985,
+          "sparse": false
+        }
+      },
+      {
+        "id": "bow-goal:Arm:502",
+        "part": "arm",
+        "name": "原初腕甲",
+        "baseId": "Arm:502",
+        "source": "craft",
+        "goal": {
+          "minimumChanges": [
+            {
+              "id": 232,
+              "min": 0
+            },
+            {
+              "id": 6,
+              "min": 0
+            },
+            {
+              "id": 233,
+              "min": 1
+            }
+          ],
+          "skills": [
+            {
+              "skill_id": 232,
+              "level": 1
+            },
+            {
+              "skill_id": 6,
+              "level": 1
+            },
+            {
+              "skill_id": 233,
+              "level": 1
+            }
+          ],
+          "slots": [
+            4,
+            4,
+            3
+          ],
+          "minRawSlots": 1,
+          "maxPositiveRecords": 7,
+          "maxRecords": 7,
+          "deleteSkills": true
+        },
+        "pool": 6,
+        "budget": 10,
+        "mode": "normal",
+        "probability": {
+          "mode": "normal",
+          "p": 0.0001737391304347826,
+          "se": 0.0000019402784630505215,
+          "n": 2000000,
+          "support": 7989,
+          "effectiveHits": 7986.00450112528,
+          "sparse": false
+        },
+        "probabilities": [
+          {
+            "mode": "normal",
+            "p": 0.0001737391304347826,
+            "se": 0.0000019402784630505215,
+            "n": 2000000,
+            "support": 7989,
+            "effectiveHits": 7986.00450112528,
+            "sparse": false
+          },
+          {
+            "mode": "skills",
+            "p": 8.695652173913044e-8,
+            "se": 4.347821739128261e-8,
+            "n": 2000000,
+            "support": 4,
+            "effectiveHits": 4,
+            "sparse": true
+          },
+          {
+            "mode": "slots",
+            "p": 1.3043478260869566e-7,
+            "se": 5.324969714230018e-8,
+            "n": 2000000,
+            "support": 6,
+            "effectiveHits": 6,
+            "sparse": true
+          }
+        ],
+        "expectedRolls": 5755.755755755757,
+        "skills": [
+          {
+            "skill_id": 6,
+            "level": 1
+          },
+          {
+            "skill_id": 232,
+            "level": 1
+          },
+          {
+            "skill_id": 233,
+            "level": 1
+          }
+        ],
+        "slots": [
+          4,
+          4,
+          3
+        ],
+        "rarity": 10,
+        "individualBestMode": "normal",
+        "individualProbability": {
+          "mode": "normal",
+          "p": 0.0001737391304347826,
+          "se": 0.0000019402784630505215,
+          "n": 2000000,
+          "support": 7989,
+          "effectiveHits": 7986.00450112528,
+          "sparse": false
+        },
+        "stargazingMode": "normal",
+        "stargazingProbability": {
+          "mode": "normal",
+          "p": 0.0001737391304347826,
+          "se": 0.0000019402784630505215,
+          "n": 2000000,
+          "support": 7989,
+          "effectiveHits": 7986.00450112528,
+          "sparse": false
+        }
+      },
+      {
+        "id": "bow-goal:Waist:506",
+        "part": "waist",
+        "name": "久爱腰甲",
+        "baseId": "Waist:506",
+        "source": "craft",
+        "goal": {
+          "minimumChanges": [
+            {
+              "id": 231,
+              "min": -1
+            },
+            {
+              "id": 205,
+              "min": 0
+            },
+            {
+              "id": 7,
+              "min": 0
+            },
+            {
+              "id": 200,
+              "min": 1
+            }
+          ],
+          "skills": [
+            {
+              "skill_id": 205,
+              "level": 1
+            },
+            {
+              "skill_id": 7,
+              "level": 2
+            },
+            {
+              "skill_id": 200,
+              "level": 1
+            }
+          ],
+          "slots": [
+            4,
+            2,
+            1
+          ],
+          "minRawSlots": 1,
+          "maxPositiveRecords": 7,
+          "maxRecords": 7,
+          "deleteSkills": true
+        },
+        "pool": 6,
+        "budget": 10,
+        "mode": "skills",
+        "probability": {
+          "mode": "skills",
+          "p": 0.0009870384615384615,
+          "se": 0.0000061217558991845784,
+          "n": 2000000,
+          "support": 25663,
+          "effectiveHits": 25663,
+          "sparse": false
+        },
+        "probabilities": [
+          {
+            "mode": "normal",
+            "p": 0.000102,
+            "se": 0.0000019793622516045224,
+            "n": 2000000,
+            "support": 2652,
+            "effectiveHits": 2651.9999999999995,
+            "sparse": false
+          },
+          {
+            "mode": "skills",
+            "p": 0.0009870384615384615,
+            "se": 0.0000061217558991845784,
+            "n": 2000000,
+            "support": 25663,
+            "effectiveHits": 25663,
+            "sparse": false
+          },
+          {
+            "mode": "slots",
+            "p": 0.000642269230769231,
+            "se": 0.000004949384591996973,
+            "n": 2000000,
+            "support": 16699,
+            "effectiveHits": 16699.00000000001,
+            "sparse": false
+          }
+        ],
+        "expectedRolls": 1013.1317460935978,
+        "skills": [
+          {
+            "skill_id": 7,
+            "level": 2
+          },
+          {
+            "skill_id": 200,
+            "level": 1
+          },
+          {
+            "skill_id": 205,
+            "level": 1
+          }
+        ],
+        "slots": [
+          4,
+          2,
+          1
+        ],
+        "rarity": 10,
+        "individualBestMode": "skills",
+        "individualProbability": {
+          "mode": "skills",
+          "p": 0.0009870384615384615,
+          "se": 0.0000061217558991845784,
+          "n": 2000000,
+          "support": 25663,
+          "effectiveHits": 25663,
+          "sparse": false
+        },
+        "stargazingMode": "skills",
+        "stargazingProbability": {
+          "mode": "skills",
+          "p": 0.0009870384615384615,
+          "se": 0.0000061217558991845784,
+          "n": 2000000,
+          "support": 25663,
+          "effectiveHits": 25663,
+          "sparse": false
+        }
+      },
+      {
+        "id": "bow-goal:Leg:502",
+        "part": "leg",
+        "name": "原初护腿",
+        "baseId": "Leg:502",
+        "source": "craft",
+        "goal": {
+          "minimumChanges": [
+            {
+              "id": 232,
+              "min": 0
+            },
+            {
+              "id": 6,
+              "min": 0
+            },
+            {
+              "id": 80,
+              "min": -3
+            },
+            {
+              "id": 227,
+              "min": 1
+            }
+          ],
+          "skills": [
+            {
+              "skill_id": 232,
+              "level": 1
+            },
+            {
+              "skill_id": 6,
+              "level": 1
+            },
+            {
+              "skill_id": 227,
+              "level": 1
+            }
+          ],
+          "slots": [
+            4,
+            4,
+            2
+          ],
+          "minRawSlots": 2,
+          "maxPositiveRecords": 7,
+          "maxRecords": 7,
+          "deleteSkills": true
+        },
+        "pool": 6,
+        "budget": 10,
+        "mode": "skills",
+        "probability": {
+          "mode": "skills",
+          "p": 0.00007973913043478257,
+          "se": 0.0000013182722137288651,
+          "n": 2000000,
+          "support": 3660,
+          "effectiveHits": 3652.0694896851223,
+          "sparse": false
+        },
+        "probabilities": [
+          {
+            "mode": "normal",
+            "p": 0.000008586956521739128,
+            "se": 4.3201400434793893e-7,
+            "n": 2000000,
+            "support": 395,
+            "effectiveHits": 394.9999999999998,
+            "sparse": false
+          },
+          {
+            "mode": "skills",
+            "p": 0.00007973913043478257,
+            "se": 0.0000013182722137288651,
+            "n": 2000000,
+            "support": 3660,
+            "effectiveHits": 3652.0694896851223,
+            "sparse": false
+          },
+          {
+            "mode": "slots",
+            "p": 0.00008408695652173911,
+            "se": 0.0000013510689054025177,
+            "n": 2000000,
+            "support": 3867,
+            "effectiveHits": 3866.00103359173,
+            "sparse": false
+          }
+        ],
+        "expectedRolls": 11892.450879007241,
+        "skills": [
+          {
+            "skill_id": 6,
+            "level": 1
+          },
+          {
+            "skill_id": 227,
+            "level": 1
+          },
+          {
+            "skill_id": 232,
+            "level": 1
+          }
+        ],
+        "slots": [
+          4,
+          4,
+          2
+        ],
+        "rarity": 10,
+        "individualBestMode": "slots",
+        "individualProbability": {
+          "mode": "slots",
+          "p": 0.00008408695652173911,
+          "se": 0.0000013510689054025177,
+          "n": 2000000,
+          "support": 3867,
+          "effectiveHits": 3866.00103359173,
+          "sparse": false
+        },
+        "stargazingMode": "skills",
+        "stargazingProbability": {
+          "mode": "skills",
+          "p": 0.00007973913043478257,
+          "se": 0.0000013182722137288651,
+          "n": 2000000,
+          "support": 3660,
+          "effectiveHits": 3652.0694896851223,
+          "sparse": false
+        }
+      }
+    ],
+    "charm": {
+      "id": "specified-bow",
+      "name": "狂化2业铠1s411",
+      "skills": [
+        {
+          "skill_id": 225,
+          "level": 2
+        },
+        {
+          "skill_id": 203,
+          "level": 1
+        }
+      ],
+      "slots": [
+        4,
+        1,
+        1
+      ],
+      "method": "vigor",
+      "guideSource": "specified",
+      "guideOwned": false,
+      "guideAcquisitionIncluded": false
+    },
+    "decorations": [
+      {
+        "id": "Deco:49",
+        "count": 1
+      },
+      {
+        "id": "Deco:7",
+        "count": 1
+      },
+      {
+        "id": "Deco:6",
+        "count": 1
+      },
+      {
+        "id": "Deco:10",
+        "count": 1
+      },
+      {
+        "id": "Deco:51",
+        "count": 2
+      },
+      {
+        "id": "Deco:65",
+        "count": 1
+      },
+      {
+        "id": "Deco:16",
+        "count": 1
+      },
+      {
+        "id": "MrDeco:65",
+        "count": 1
+      },
+      {
+        "id": "MrDeco:114",
+        "count": 1
+      },
+      {
+        "id": "MrDeco:104",
+        "count": 1
+      },
+      {
+        "id": "MrDeco:85",
+        "count": 1
+      },
+      {
+        "id": "MrDeco:30",
+        "count": 1
+      },
+      {
+        "id": "MrDeco:131",
+        "count": 1
+      },
+      {
+        "id": "MrDeco:139",
+        "count": 1
+      },
+      {
+        "id": "MrDeco:123",
+        "count": 1
+      },
+      {
+        "id": "MrDeco:144",
+        "count": 1
+      },
+      {
+        "id": "MrDeco:152",
+        "count": 1
+      },
+      {
+        "id": "MrDeco:149",
+        "count": 1
+      }
+    ],
+    "placement": [
+      {
+        "owner": "Bow:427",
+        "index": 0,
+        "level": 2,
+        "decorationId": "Deco:7"
+      },
+      {
+        "owner": "bow-goal:Head:495",
+        "index": 0,
+        "level": 4,
+        "decorationId": "MrDeco:65"
+      },
+      {
+        "owner": "bow-goal:Head:495",
+        "index": 1,
+        "level": 2,
+        "decorationId": "Deco:6"
+      },
+      {
+        "owner": "bow-goal:Head:495",
+        "index": 2,
+        "level": 1,
+        "decorationId": "Deco:51"
+      },
+      {
+        "owner": "bow-goal:Chest:502",
+        "index": 0,
+        "level": 4,
+        "decorationId": "MrDeco:114"
+      },
+      {
+        "owner": "bow-goal:Chest:502",
+        "index": 1,
+        "level": 4,
+        "decorationId": "MrDeco:85"
+      },
+      {
+        "owner": "bow-goal:Chest:502",
+        "index": 2,
+        "level": 2,
+        "decorationId": "Deco:10"
+      },
+      {
+        "owner": "bow-goal:Arm:502",
+        "index": 0,
+        "level": 4,
+        "decorationId": "MrDeco:30"
+      },
+      {
+        "owner": "bow-goal:Arm:502",
+        "index": 1,
+        "level": 4,
+        "decorationId": "MrDeco:131"
+      },
+      {
+        "owner": "bow-goal:Arm:502",
+        "index": 2,
+        "level": 3,
+        "decorationId": "Deco:49"
+      },
+      {
+        "owner": "bow-goal:Waist:506",
+        "index": 0,
+        "level": 4,
+        "decorationId": "MrDeco:139"
+      },
+      {
+        "owner": "bow-goal:Waist:506",
+        "index": 1,
+        "level": 2,
+        "decorationId": "Deco:65"
+      },
+      {
+        "owner": "bow-goal:Waist:506",
+        "index": 2,
+        "level": 1,
+        "decorationId": "Deco:51"
+      },
+      {
+        "owner": "bow-goal:Leg:502",
+        "index": 0,
+        "level": 4,
+        "decorationId": "MrDeco:144"
+      },
+      {
+        "owner": "bow-goal:Leg:502",
+        "index": 1,
+        "level": 4,
+        "decorationId": "MrDeco:152"
+      },
+      {
+        "owner": "bow-goal:Leg:502",
+        "index": 2,
+        "level": 2,
+        "decorationId": "MrDeco:104"
+      },
+      {
+        "owner": "charm",
+        "index": 0,
+        "level": 4,
+        "decorationId": "MrDeco:149"
+      },
+      {
+        "owner": "charm",
+        "index": 1,
+        "level": 1,
+        "decorationId": "Deco:16"
+      },
+      {
+        "owner": "charm",
+        "index": 2,
+        "level": 1,
+        "decorationId": "MrDeco:123"
+      }
+    ],
+    "totals": {
+      "5": 2,
+      "6": 3,
+      "7": 3,
+      "10": 3,
+      "16": 5,
+      "28": 1,
+      "49": 3,
+      "51": 2,
+      "65": 1,
+      "200": 3,
+      "203": 3,
+      "205": 1,
+      "212": 3,
+      "216": 2,
+      "218": 3,
+      "219": 2,
+      "223": 1,
+      "225": 2,
+      "227": 1,
+      "232": 3,
+      "233": 3
+    },
+    "expectedRolls": 48770.8453089742,
+    "needsRolling": 5,
+    "needsCrafting": 5,
+    "verified": true,
+    "scope": "sufficient-skill-slot-goals",
+    "solverStatus": "Optimal"
+  }
+}

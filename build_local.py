@@ -39,7 +39,7 @@ sim_worker=(R/'dist/augment-sim.js').read_text()+'\n'+(R/'dist/augment-worker.js
 embedded+='\n<script id="embeddedAugmentWorker" type="application/octet-stream">'+b64(sim_worker.encode())+'</script>'
 for name in ['handcraft.js','handcraft-ui.js']:
     embedded+='\n<script>'+safe_script((R/'dist'/name).read_text())+'</script>'
-guide_worker=worker.rsplit((R/'dist/worker.js').read_text().split('\n',1)[1],1)[0]+(R/'dist/probability.js').read_text()+'\n'+(R/'dist/handcraft.js').read_text()+'\n'+(R/'dist/stargazing.js').read_text()+'\n'+(R/'dist/handcraft-worker.js').read_text().split('\n',1)[1]
+guide_worker=worker.rsplit((R/'dist/worker.js').read_text().split('\n',1)[1],1)[0]+(R/'dist/probability.js').read_text()+'\n'+(R/'dist/handcraft.js').read_text()+'\n'+(R/'dist/stargazing.js').read_text()+'\n'+(R/'dist/equivalent-objective.js').read_text()+'\n'+(R/'dist/handcraft-worker.js').read_text().split('\n',1)[1]
 embedded+='\n<script id="embeddedHandcraftWorker" type="application/octet-stream">'+b64(guide_worker.encode())+'</script>'
 embedded+='\n<script id="embeddedProbabilityIndex" type="application/json">'+(R/'dist/probability/index.json').read_text()+'</script>'
 embedded+='\n<script id="embeddedProbabilityBook" type="application/octet-stream">'+b64((R/'dist/probability/codebook.json.gz').read_bytes())+'</script>'
@@ -64,10 +64,10 @@ zip_path=OUT/('MHRScalculator-'+release.replace('.','')+'.zip')
 with zipfile.ZipFile(zip_path,'w',zipfile.ZIP_DEFLATED,compresslevel=6) as z:
     z.write(standalone,'MHRScalculator/SunbreakForge.html')
     z.writestr('MHRScalculator/README.md',readme)
-    for name in ['start_local.py','start-windows.bat','start-macos.command','start-linux.sh','package.json','build_local.py','LICENSE.txt']:
+    for name in ['start_local.py','start-windows.bat','start-macos.command','start-linux.sh','package.json','build_local.py','LICENSE.txt','AGENTS.md']:
         z.write(R/name,'MHRScalculator/'+name)
     for p in sorted((R/'dist').rglob('*')):
-        if p.is_file():z.write(p,'MHRScalculator/'+p.relative_to(R).as_posix())
+        if p.is_file() and 'downloads' not in p.relative_to(R/'dist').parts:z.write(p,'MHRScalculator/'+p.relative_to(R).as_posix())
     for p in sorted((R/'tests').glob('*')):
         if p.is_file():z.write(p,'MHRScalculator/'+p.relative_to(R).as_posix())
     for p in sorted((R/'docs').rglob('*')):

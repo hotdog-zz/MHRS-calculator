@@ -8,3 +8,5 @@
 - [炼化模拟](augment-simulator.md)：保留结果、命中指令与统计口径。
 - [手炼指导](handcraft-guidance.md)：库存与待炼部位、预计次数目标、概率口径，以及路线去重与等价观星分配的区别。
 - [开发与本地打包](development.md)：源码结构、检查方式和压缩包命名。
+
+- [发布约定](release-workflow.md)：双ZIP、版本一致、Git回退与Sites同步。
