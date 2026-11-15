@@ -1,4 +1,4 @@
-importScripts('./vendor/highs.js','./engine.js','./config.js','./mod.js','./inventory.js','./probability.js','./handcraft.js','./stargazing.js');
+importScripts('./vendor/highs.js','./engine.js','./config.js','./mod.js','./inventory.js','./probability.js','./handcraft.js','./stargazing.js','./equivalent-objective.js');
 let running=false,nextId=0;const pending=new Map();
 self.onmessage=async event=>{
  const m=event.data;
@@ -13,11 +13,12 @@ self.onmessage=async event=>{
    const [dictionary,bytes]=await Promise.all([book(),asset(group+m.index.extension,'probability-request',group)]);
    return ForgeProbability.decode(bytes,dictionary,group);
   },bank=ForgeProbability.createBank(m.data,m.index,loader);
-  // Search uses only the unchanged actual-armor bank. Observation work starts
-  // afterwards and cannot alter columns, weights, search time or incumbents.
-  const response=await ForgeHandcraft.analyze(m.data,m.request,m.inventory,highs,bank,m.config,p=>postMessage(p.phase==='guide-route'?{...p,route:{...p.route,observationPending:true,stargazingRolls:null,stargazingGroups:[]}}:p));
+  const objectiveBank=m.index.observation?ForgeProbability.createBank(m.data,{...m.index.observation,rolls:m.index.observation.rolls},loader):null;
+  const execution=objectiveBank&&typeof ForgeEquivalentSearch!=='undefined'?{equivalentOptimizer:c=>ForgeEquivalentSearch.optimize(c,objectiveBank)}:{};
+  const response=await ForgeHandcraft.analyze(m.data,m.request,m.inventory,highs,bank,m.config,p=>postMessage(p.phase==='guide-route'&&p.route.searchObjective!=='equivalent-stargazing'?{...p,route:{...p.route,observationPending:true,stargazingRolls:null,stargazingGroups:[]}}:p),execution);
   const observationStarted=Date.now();
-  if(response.results.length&&m.index.observation){
+  if(response.objective==='equivalent-stargazing')response.observationStats=objectiveBank.stats();
+  if(response.objective!=='equivalent-stargazing'&&response.results.length&&m.index.observation){
    const donorBank=ForgeProbability.createBank(m.data,{...m.index.observation,rolls:m.index.observation.rolls},loader),stock=ForgeInventory.parse(m.data,m.inventory),evaluated=[];
    for(const [i,r]of response.results.entries()){postMessage({phase:'guide-status',message:'计算观星炼化组 '+(i+1)+' / '+response.results.length+'…'});const v=await ForgeStargazing.evaluate(m.data,r,m.request,donorBank,m.config,stock);evaluated.push(v);postMessage({phase:'guide-route',route:v});await new Promise(resolve=>setTimeout(resolve,0));}
    response.results=evaluated.sort(ForgeHandcraft.compare);response.observationStats=donorBank.stats();

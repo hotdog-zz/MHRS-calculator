@@ -10,8 +10,24 @@ function shape(data,p,request={}){
  const positive=vector([...changes].map(([id,min])=>({id,min}))),baseline=base.skills.map(s=>({id:s.skill_id,min:Math.min(0,changes.get(s.skill_id)??(p.goal.deleteSkills===false?0:-s.level))})),removed=p.goal.deleteSkills===false?0:sum(baseline.map(s=>-s.min));
  return {part:p.part,baseId:base.id,native:[...native],baseline,positive,growth:Math.max(growth(base,p.goal.slots),p.goal.minRawSlots||0),maxRemoved:Math.min(removed,p.goal.maxRemoved??Infinity),maxPositiveRecords:Math.min(p.goal.maxPositiveRecords??7,request.options?.augmentLimits?.[p.part]??7),maxRecords:p.goal.maxRecords??7};
 }
-function donorOptions(s){return {minimumChanges:s.positive.map(([id,min])=>({id,min})),minRawSlots:s.growth,maxRemoved:s.maxRemoved,maxPositiveRecords:s.maxPositiveRecords,maxRecords:s.maxRecords};}
-function signature(s){return key([s.positive,s.growth,s.maxRemoved,s.maxPositiveRecords,s.maxRecords]);}
+// Position-only marginal correction; the release default excludes compensation.
+// Count independent uniform deletion positions whose per-skill occupancy fits
+// the final permitted losses. This is a net-loss approximation, not a replay.
+function deletionWeights(s){
+ const n=s.native.length,limit=Math.min(s.maxRemoved,s.maxRecords),minimum=new Map(s.baseline.map(v=>[v.id,v.min])),caps=s.native.map(([id,level])=>Math.min(level,Math.max(0,-(minimum.get(id)??0))));
+ const factorial=[1];for(let k=1;k<=limit;k++)factorial[k]=factorial[k-1]*k;
+ let coefficients=Array(limit+1).fill(0);coefficients[0]=1;
+ for(const cap of caps){const next=Array(limit+1).fill(0);for(let k=0;k<=limit;k++)for(let j=0;j<=Math.min(cap,k);j++)next[k]+=coefficients[k-j]/factorial[j];coefficients=next;}
+ return coefficients.map((v,k)=>k===0?1:n?v*factorial[k]/n**k:0);
+}
+function graftTargets(s){if(s?.graftTargets)return s.graftTargets;const weighted=s?.graftPosition&&s.graftCompleteOutcome!==false;if(!s?.graftInverse&&!weighted)return [];const baseline=new Map(s.baseline.map(v=>[v.id,v.min])),positive=new Map(s.positive);return [{native:s.native.map(([id,level])=>({id,level,min:Math.max(baseline.get(id)??-level,positive.get(id)??-Infinity)})),minimumChanges:s.positive.map(([id,min])=>({id,min})),maxNetRemoved:s.maxRemoved,maxPositiveRecords:s.maxPositiveRecords,maxRecords:s.maxRecords,completeOutcome:s.graftCompleteOutcome!==false,...(weighted?{removedWeights:s.removedWeights}:{})}];}
+function inverseEnabled(cfg){return cfg.graftInverseCorrection===true;}
+function positionEnabled(cfg){return cfg.graftDeletionCorrection===true||cfg.graftDeletionCorrection!==false&&cfg.graftInverseCorrection==null;}
+function correctedShape(s,cfg){return s&&inverseEnabled(cfg)?{...s,graftInverse:true,graftCompleteOutcome:cfg.graftCompleteOutcomeCorrection!==false}:s&&positionEnabled(cfg)?{...s,graftPosition:true,graftCompleteOutcome:cfg.graftCompleteOutcomeCorrection!==false,removedWeights:deletionWeights(s)}:s;}
+function currentModel(cfg){return inverseEnabled(cfg)?(cfg.graftCompleteOutcomeCorrection===false?'palace-current-group-inverse-net-v1':'palace-current-group-inverse-complete-v2'):positionEnabled(cfg)?(cfg.graftCompleteOutcomeCorrection===false?'palace-current-group-weighted-v1':'palace-current-group-weighted-complete-v1'):'palace-current-group-multiplicity-v2';}
+function intersectWeights(a,b){const targets=[...graftTargets(a),...graftTargets(b)];if(targets.length)return {graftTargets:[...new Map(targets.map(t=>[key(t),t])).entries()].sort(([a],[b])=>a.localeCompare(b)).map(([,t])=>t)};if(!a?.removedWeights&&!b?.removedWeights)return {};const size=Math.max(a?.removedWeights?.length||0,b?.removedWeights?.length||0);return {removedWeights:Array.from({length:size},(_,k)=>Math.min(a?.removedWeights?(a.removedWeights[k]??0):1,b?.removedWeights?(b.removedWeights[k]??0):1))};}
+function donorOptions(s){const targets=graftTargets(s);return {minimumChanges:s.positive.map(([id,min])=>({id,min})),minRawSlots:s.growth,maxRemoved:s.maxRemoved,maxPositiveRecords:s.maxPositiveRecords,maxRecords:s.maxRecords,...(s.removedWeights?{removedWeights:s.removedWeights}:{}),...(targets.length?{graftTargets:targets}:{})};}
+function signature(s){const targets=graftTargets(s);return key([s.positive,s.growth,s.maxRemoved,s.maxPositiveRecords,s.maxRecords,...(s.removedWeights?[s.removedWeights]:[]),...(targets.length?['inverse-net-change-v1',targets]:[])]);}
 function legal(data,s,positive){
  const skills=new Map(data.skills.map(v=>[v.id,v])),native=new Map(s.native),baseline=new Map(s.baseline.map(x=>[x.id,x.min]));let kinds=native.size;
  for(const[id,n]of positive){const skill=skills.get(id);if(!skill||skill.cost==null||n<1||n+(native.get(id)||0)>skill.max||native.has(id)&&(baseline.get(id)||0)<0)return false;if(!native.has(id))kinds++;}
@@ -45,9 +61,29 @@ function recipes(data,r,shapes,inventory,cfg={}){
  function go(i,delta){if(out.length>=24||nodes++>4000){truncated=true;return;}if(i===rows.length){const needed=new Map(total);for(const[id,n]of delta)needed.set(id,(needed.get(id)||0)+n);if([...needed.values()].some(n=>n<0))return;const k=key([...needed].filter(([,n])=>n).sort((a,b)=>a[0]-b[0]));if(seen.has(k))return;seen.add(k);let at=0;out.push({id:k,totals:[...needed],placement:(r.placement||[]).map(p=>p.decorationId?{...p,decorationId:picked[at++].id}:copy(p))});return;}
   const old=decos.get(rows[i].decorationId);if(!old)return;
   for(const d of candidates[i]){if(!d)continue;const used=(usage.get(d.id)||0)+1,stock=cfg.decos==='all'?Infinity:inventory?.counts?.get(M.decoToGame(d.id))??baseUsage.get(d.id)??0;if(used>stock)continue;usage.set(d.id,used);picked.push(d);const next=new Map(delta);for(const s of old.skills)next.set(s.skill_id,(next.get(s.skill_id)||0)+s.level);for(const s of d.skills)next.set(s.skill_id,(next.get(s.skill_id)||0)-s.level);go(i+1,next);picked.pop();if(used>1)usage.set(d.id,used-1);else usage.delete(d.id);}
- }if(rows.some((_,i)=>candidates[i].length>1))go(0,new Map());return {recipes:out,truncated};
+ }if(rows.some((_,i)=>candidates[i].length>1))go(0,new Map());
+ // If enumeration stops early, identical complete inputs still prove an
+ // identical recipe domain. A matching partial list alone does not.
+ const domainKey=key([[...total].sort((a,b)=>a[0]-b[0]),rows.map((p,i)=>[p.level,decos.get(p.decorationId).skills.map(s=>[s.skill_id,s.level]).sort((a,b)=>a[0]-b[0]),candidates[i].map(d=>[d.id,cfg.decos==='all'?'all':inventory?.counts?.get(M.decoToGame(d.id))??baseUsage.get(d.id)??0]).sort((a,b)=>a[0].localeCompare(b[0]))]).sort((a,b)=>key(a).localeCompare(key(b)))]);
+ return {recipes:out,truncated,domainKey};
 }
-const boundKey=s=>key([s.growth,s.maxRemoved,s.maxPositiveRecords,s.maxRecords]),skillCovers=(a,b)=>b.every(([id,n])=>(a.find(v=>v[0]===id)?.[1]||0)>=n);
+function equivalenceGroupKey(data,r,request,modes,shapes,recipeOptions,sets,cfg={}){
+ const skills=new Map(data.skills.map(s=>[s.id,s])),byPart=new Map(shapes.map(s=>[s.part,s])),ref=x=>x?[x.box,x.index,x.inventoryIndex,x.idType,x.idVal,x.fingerprint]:null;
+ const quotas=s=>{const q=new Map();for(const[id,n]of s.positive){const v=skills.get(id),t=v.cost+':'+v.max;q.set(t,(q.get(t)||0)+n);}return [...q].sort(([a],[b])=>a.localeCompare(b));};
+ const pieces=r.pieces.slice().sort((a,b)=>E.PARTS.indexOf(a.part)-E.PARTS.indexOf(b.part)).map(p=>{
+  const s=byPart.get(p.part),identity=[p.part,p.baseId,p.source,ref(p.ref),p.pool,p.budget];
+  // Non-pool6 and finished pieces do not participate in label redistribution.
+  if(!s)return [...identity,'fixed',p.goal||null,p.skills,p.slots,p.atoms||[],p.probabilities||[]];
+  return [...identity,'family',s.baseline.slice().sort((a,b)=>a.id-b.id),s.growth,s.maxRemoved,s.maxPositiveRecords,s.maxRecords,quotas(s)];
+ });
+ // Native constraints and per-cost/max quotas determine all legal families
+ // for a named recipe total, even when family enumeration was truncated.
+ const totals=[...new Set((recipeOptions.familyDomainTruncated?recipeOptions.recipes:sets.map(s=>s.recipe)).map(recipe=>key(recipe.totals.filter(([,n])=>n).sort((a,b)=>a[0]-b[0]))))].sort();
+ const recipes=recipeOptions.truncated?['domain',recipeOptions.domainKey]:['totals',totals];
+ const modePolicy=cfg.groupModePolicy==='joint'?['joint',[...modes].sort()]:['fixed',shapes.map(s=>[s.part,r.pieces.find(p=>p.part===s.part).stargazingMode||r.pieces.find(p=>p.part===s.part).mode]).sort()];
+ return key(['equivalent-group-v1',r.weaponId,r.inventoryId,E.charmSignature(r.charm),ref(r.charm?.guideRef),(request.skills||[]).map(s=>[s.id,s.level]).sort((a,b)=>a[0]-b[0]),pieces,Object.entries(r.totals||{}).filter(([,n])=>n>0).map(([id,n])=>[+id,Math.min(n,skills.get(+id)?.max??n)]).sort((a,b)=>a[0]-b[0]),modePolicy,recipes]);
+}
+const boundKey=s=>key([s.growth,s.maxRemoved,s.maxPositiveRecords,s.maxRecords,...(s.removedWeights?[s.removedWeights]:[]),...(graftTargets(s).length?['inverse-net-change-v1',graftTargets(s)]:[])]),skillCovers=(a,b)=>b.every(([id,n])=>(a.find(v=>v[0]===id)?.[1]||0)>=n);
 function covers(event,goal){return skillCovers(event.positive,goal.positive)&&(event.boundMatches?event.boundMatches.includes(boundKey(goal)):event.growth>=goal.growth&&event.maxRemoved<=goal.maxRemoved&&event.maxPositiveRecords<=goal.maxPositiveRecords&&event.maxRecords<=goal.maxRecords);}
 // Split ONLY numeric restrictions of the SAME skill outcome into disjoint
 // applicability cells. Different skill profiles retain the requested inclusive
@@ -55,7 +91,9 @@ function covers(event,goal){return skillCovers(event.positive,goal.positive)&&(e
 function ratePlan(goals){
  const profiles=[...new Map(goals.map(g=>[key(g.positive),g.positive])).values()];
  return profiles.map(positive=>{const bounds=[...new Map(goals.filter(g=>skillCovers(positive,g.positive)).map(g=>[boundKey(g),g])).values()],points=Array(1<<bounds.length).fill(null);
-  for(let mask=1;mask<points.length;mask++){const bit=mask&-mask,i=31-Math.clz32(bit),a=points[mask^bit],b=bounds[i];points[mask]={positive,growth:a?Math.max(a.growth,b.growth):b.growth,maxRemoved:a?Math.min(a.maxRemoved,b.maxRemoved):b.maxRemoved,maxPositiveRecords:a?Math.min(a.maxPositiveRecords,b.maxPositiveRecords):b.maxPositiveRecords,maxRecords:a?Math.min(a.maxRecords,b.maxRecords):b.maxRecords};}
+  // Ignore actual cross-armor position compatibility as requested. Shared
+  // acceptance thresholds retain the smaller marginal weight at intersections.
+  for(let mask=1;mask<points.length;mask++){const bit=mask&-mask,i=31-Math.clz32(bit),a=points[mask^bit],b=bounds[i];points[mask]={positive,growth:a?Math.max(a.growth,b.growth):b.growth,maxRemoved:a?Math.min(a.maxRemoved,b.maxRemoved):b.maxRemoved,maxPositiveRecords:a?Math.min(a.maxPositiveRecords,b.maxPositiveRecords):b.maxPositiveRecords,maxRecords:a?Math.min(a.maxRecords,b.maxRecords):b.maxRecords,...intersectWeights(a,b)};}
   return {positive,bounds,points};
  });
 }
@@ -66,30 +104,32 @@ function outcomeRates(goals,probabilities,plan=ratePlan(goals)){
  }return out;
 }
 async function loadOutcomeRates(goals,lookup){const plan=ratePlan(goals),values=new Map();for(const {points}of plan)for(const point of points)if(point&&!values.has(signature(point)))values.set(signature(point),(await lookup(point)).p);return outcomeRates(goals,values,plan);}
-function groupMean(inputFamilies,events,options={}){
+function groupMean(inputFamilies,events,options={}){try{return groupMeanRaw(inputFamilies,events,options);}catch(e){if(e.message==='evaluation-time-budget')return {expectedRolls:null,reason:'evaluation-time-budget'};throw e;}}
+function groupMeanRaw(inputFamilies,events,options={}){
+ const checkBudget=()=>{if(options.deadlineMs&&Date.now()>=options.deadlineMs)throw Error('evaluation-time-budget');};checkBudget();
  if(!inputFamilies.length)return {expectedRolls:null,reason:'no-family'};
  if(inputFamilies.some(f=>!f.length))return {expectedRolls:0,method:'exact-lookup-model',states:0};
  const families=[...new Map(inputFamilies.map(f=>[key(f.map(signature).sort()),f])).values()],fulls=families.map(f=>(1<<f.length)-1),start=families.map(()=>1),compatible=events.map(e=>families.map(f=>f.reduce((m,g,i)=>covers(e,g)?m|(1<<i):m,0))),memo=new Map(),transitions=new Map(),stateLimit=options.stateLimit??Math.min(3000,Math.max(100,Math.floor(300000/families.length))),edgeLimit=Math.min(2000,Math.max(16,Math.floor(3000000/(families.length*Math.max(1,events.length)))));
  const prune=(bits,full)=>{let out=bits;for(let m=full;m>=0;m--)if(out&(1<<m))for(let sub=(m-1)&m;m&&sub!==m;sub=(sub-1)&m){out&=~(1<<sub);if(sub===0)break;}return out>>>0;};
  function transition(s,e){const next=s.map((bits,j)=>{const full=fulls[j];let b=bits;for(let mask=0;mask<=full;mask++)if(bits&(1<<mask)){let free=compatible[e][j]&~mask;while(free){const bit=free&-free;free-=bit;b|=1<<(mask|bit);}}return prune(b,full);});return next.some((b,j)=>b&(1<<fulls[j]))?null:next;}
- function edges(s){const k=s.join(',');if(transitions.has(k))return transitions.get(k);const out=[];let rate=0;for(let i=0;i<events.length;i++){const next=transition(s,i);if(next&&next.every((v,j)=>v===s[j]))continue;rate+=events[i].p;out.push({p:events[i].p,next});}const r={rate,out};if(transitions.size<edgeLimit)transitions.set(k,r);return r;}
+ function edges(s){checkBudget();const k=s.join(',');if(transitions.has(k))return transitions.get(k);const out=[];let rate=0;for(let i=0;i<events.length;i++){const next=transition(s,i);if(next&&next.every((v,j)=>v===s[j]))continue;rate+=events[i].p;out.push({p:events[i].p,next});}const r={rate,out};if(transitions.size<edgeLimit)transitions.set(k,r);return r;}
  const total=sum(events.map(e=>e.p));if(total>1+1e-9)return {expectedRolls:null,reason:'lookup-rate-sum-over-one'};
- function exact(s){const k=s.join(',');if(memo.has(k))return memo.get(k);if(memo.size>stateLimit)throw Error('state-limit');const {rate,out}=edges(s);if(!rate)return Infinity;memo.set(k,NaN);let numerator=1;for(const e of out)if(e.next)numerator+=e.p*exact(e.next);const value=numerator/rate;memo.set(k,value);return value;}
+ function exact(s){checkBudget();const k=s.join(',');if(memo.has(k))return memo.get(k);if(memo.size>stateLimit)throw Error('state-limit');const {rate,out}=edges(s);if(!rate)return Infinity;memo.set(k,NaN);let numerator=1;for(const e of out)if(e.next)numerator+=e.p*exact(e.next);const value=numerator/rate;memo.set(k,value);return value;}
  try{const value=exact(start);return {expectedRolls:Number.isFinite(value)?value:null,method:'exact-lookup-model',states:memo.size,families:families.length};}catch(e){if(e.message!=='state-limit')throw e;}
  // Event-driven numerical estimate, skipping irrelevant repeats. Independent
  // deterministic replicates; conditional waiting means reduce variance.
  let seed=options.seed??1737;const random=()=>((seed=(Math.imul(seed,1664525)+1013904223)>>>0)/4294967296),trials=options.trials??1536;let s1=0,s2=0;
- for(let t=0;t<trials;t++){let s=start,value=0;for(let step=0;s&&step<1000;step++){const {rate,out}=edges(s);if(!rate)return {expectedRolls:null,reason:'unreachable'};value+=1/rate;let pick=random()*rate,chosen=out[out.length-1];for(const e of out){pick-=e.p;if(pick<0){chosen=e;break;}}s=chosen.next;}if(s)return {expectedRolls:null,reason:'transition-limit'};s1+=value;s2+=value*value;}
+ for(let t=0;t<trials;t++){checkBudget();let s=start,value=0;for(let step=0;s&&step<1000;step++){const {rate,out}=edges(s);if(!rate)return {expectedRolls:null,reason:'unreachable'};value+=1/rate;let pick=random()*rate,chosen=out[out.length-1];for(const e of out){pick-=e.p;if(pick<0){chosen=e;break;}}s=chosen.next;}if(s)return {expectedRolls:null,reason:'transition-limit'};s1+=value;s2+=value*value;}
  const mean=s1/trials;return {expectedRolls:mean,method:'event-driven-lookup-estimate',standardError:Math.sqrt(Math.max(0,(s2-trials*mean*mean)/(trials-1))/trials),trials,states:memo.size,families:families.length};
 }
 async function currentPlan(data,pieces,request,bank,modes=MODES,cfg={}){
- const independent=H.optimizeModes(pieces.map(p=>p.pool===6?{...p,expectedRolls:0}:p)),choices=independent.choices.slice(),pending=pieces.map((p,index)=>({p,index,s:p.pool===6&&p.expectedRolls>0?shape(data,p,request):null})).filter(v=>v.p.pool===6&&v.p.expectedRolls>0),stats={algorithm:'mode-subset-dynamic-programming',nodes:0,groupEvaluations:0,totalCombinations:1};
+ const independent=H.optimizeModes(pieces.map(p=>p.pool===6?{...p,expectedRolls:0}:p)),choices=independent.choices.slice(),pending=pieces.map((p,index)=>({p,index,s:p.pool===6&&p.expectedRolls>0?correctedShape(shape(data,p,request),cfg):null})).filter(v=>v.p.pool===6&&v.p.expectedRolls>0),stats={algorithm:'mode-subset-dynamic-programming',nodes:0,groupEvaluations:0,totalCombinations:1};
  const invalid=reason=>({valid:false,stargazingRolls:null,expectedRolls:independent.expectedRolls,groups:independent.groups,choices,stats,reason});if(pending.some(v=>!v.s||!Number.isFinite(v.s.growth)))return invalid('missing-goals');if(!pending.length)return {...independent,stats};
  const donor=data.armors.find(a=>a.id===SOURCE),query=bank.queryExact?bank.queryExact.bind(bank):bank.query.bind(bank),probabilities=new Map(),lookup=(mode,s)=>{const k=mode+'|'+signature(s);if(!probabilities.has(k))probabilities.set(k,Promise.resolve(query(donor,mode,donorOptions(s))));return probabilities.get(k);},ps=await Promise.all(modes.map(mode=>Promise.all(pending.map(v=>lookup(mode,v.s))))),allowed=ps.map(rows=>rows.reduce((mask,p,i)=>p.p>0&&p.p<=1?mask|(1<<i):mask,0));
  for(let i=0;i<pending.length;i++){const n=allowed.filter(mask=>mask&(1<<i)).length;if(!n)return invalid('unobserved-donor-goal');stats.totalCombinations*=n;}
- const cache=new Map(),groups=new Map(),memo=new Map();
+ const cache=cfg.currentGroupCache||new Map(),groups=new Map(),memo=new Map();
  async function group(at,mask){if(!mask)return {cost:0,individual:0,group:null};const k=at+':'+mask;if(groups.has(k))return groups.get(k);if(mask&~allowed[at])return {cost:Infinity};const indices=pending.flatMap((_,i)=>mask&(1<<i)?[i]:[]),goals=indices.map(i=>pending[i].s),mode=modes[at],ck=mode+'|'+key(goals.map(signature).sort());
-  if(!cache.has(ck)){const events=await loadOutcomeRates(goals,s=>lookup(mode,s));cache.set(ck,groupMean([goals],events,cfg.numerical));stats.groupEvaluations++;}const result=cache.get(ck),cost=result.expectedRolls??Infinity,value={cost,individual:sum(indices.map(i=>1/ps[at][i].p)),group:{mode,pool:6,budget:donor.budget,shared:true,sourceArmorId:SOURCE,parts:indices.map(i=>pending[i].p.part),probabilities:indices.map(i=>ps[at][i].p),...result,probabilitySum:undefined}};groups.set(k,value);return value;
+  if(!cache.has(ck)){const events=await loadOutcomeRates(goals,s=>lookup(mode,s));const value=groupMean([goals],events,cfg.numerical);if(value.expectedRolls!=null)cache.set(ck,value);else return {cost:Infinity};stats.groupEvaluations++;}const result=cache.get(ck),cost=result.expectedRolls??Infinity,value={cost,individual:sum(indices.map(i=>1/ps[at][i].p)),group:{mode,pool:6,budget:donor.budget,shared:true,sourceArmorId:SOURCE,parts:indices.map(i=>pending[i].p.part),probabilities:indices.map(i=>ps[at][i].p),...result,probabilitySum:undefined}};groups.set(k,value);return value;
  }
  // Assign disjoint part subsets to allowed modes. There are at most 3*31
  // different nonempty group costs; repeated quotas are evaluated only once.
@@ -97,40 +137,40 @@ async function currentPlan(data,pieces,request,bank,modes=MODES,cfg={}){
  const best=await visit(0,(1<<pending.length)-1);if(!Number.isFinite(best.cost))return invalid('unreachable-lookup-model');for(const g of best.allocation)for(let i=0;i<pending.length;i++)if(g.subset&(1<<i))choices[pending[i].index]={mode:modes[g.at],...ps[g.at][i]};return {valid:true,stargazingRolls:independent.stargazingRolls+best.cost,expectedRolls:independent.expectedRolls+best.individual,groups:[...best.allocation.map(g=>g.group),...independent.groups],choices,stats};
 }
 async function equivalent(data,r,request,bank,modes,inventory,cfg={}){
- const pending=r.pieces.filter(p=>p.expectedRolls>0&&p.pool===6),shapes=pending.map(p=>shape(data,p,request));if(!shapes.length)return {expectedRolls:r.stargazingRolls,groups:r.stargazingGroups,alternatives:1,fixedModes:true,modeSearch:'fixed-current-group',model:'lookup-equivalence-approximation'};
+ const pending=r.pieces.filter(p=>p.expectedRolls>0&&p.pool===6),shapes=pending.map(p=>correctedShape(shape(data,p,request),cfg));if(!shapes.length)return {expectedRolls:r.stargazingRolls,groups:r.stargazingGroups,alternatives:1,fixedModes:true,modeSearch:'fixed-current-group',model:'lookup-equivalence-approximation'};
  if(shapes.some(s=>!s||!Number.isFinite(s.growth)))return {expectedRolls:null,reason:'missing-goals'};
  // The current group's per-part modes are immutable. A zero-hit or absent mode
  // must not silently switch to another mode, even if that mode is cheaper.
  const assignment=pending.map(p=>p.stargazingMode||p.mode);if(assignment.some(mode=>!mode||!modes.includes(mode)))return {expectedRolls:null,fixedModes:true,modeSearch:'fixed-current-group',reason:'missing-current-mode'};
  const donor=data.armors.find(a=>a.id===SOURCE),recipeOptions=recipes(data,r,shapes,inventory,cfg),sets=[];let truncated=recipeOptions.truncated;
- for(const recipe of recipeOptions.recipes){const f=families(data,shapes,recipe.totals);truncated||=f.truncated;if(f.families.length)sets.push({recipe,families:f.families});}
+ for(const recipe of recipeOptions.recipes){const f=families(data,shapes,recipe.totals);truncated||=f.truncated;if(f.truncated)recipeOptions.familyDomainTruncated=true;if(f.families.length)sets.push({recipe,families:f.families});}
  if(!sets.length)return {expectedRolls:null,reason:'no-legal-equivalence'};
  const query=bank.queryExact?bank.queryExact.bind(bank):bank.query.bind(bank),probabilities=new Map(),lookup=(mode,s)=>{const k=mode+'|'+signature(s);if(!probabilities.has(k))probabilities.set(k,Promise.resolve(query(donor,mode,donorOptions(s))));return probabilities.get(k);};
- const independentGroups=(r.stargazingGroups||[]).filter(g=>g.shared===false),independent=sum(independentGroups.map(g=>g.expectedRolls)),cache=new Map();let best=null,evaluations=0;
+ const independentGroups=(r.stargazingGroups||[]).filter(g=>g.shared===false),independent=sum(independentGroups.map(g=>g.expectedRolls)),cache=cfg.groupCache||new Map();let best=null,evaluations=0;
  // The current allocation is a valid member of its equivalence family. Keep
  // its corrected cost as an incumbent, including when numerical evaluation or
  // bounded family enumeration does not find a reliable improvement.
- if(r.stargazingModel==='palace-current-group-multiplicity-v2'&&Number.isFinite(r.stargazingRolls)&&shapes.every(s=>legal(data,s,s.positive)))best={expectedRolls:r.stargazingRolls,groups:copy(r.stargazingGroups),assignment:Object.fromEntries(pending.map((p,i)=>[p.part,assignment[i]])),example:shapes.map(s=>({part:s.part,baseId:s.baseId,positive:s.positive,growth:s.growth,maxRemoved:s.maxRemoved,nativeMinimumChanges:s.baseline,maxPositiveRecords:s.maxPositiveRecords,maxRecords:s.maxRecords})),placement:copy(r.placement||[]),recipeChanged:false,alternatives:1};
- for(const set of sets){
+ if(r.stargazingModel===currentModel(cfg)&&Number.isFinite(r.stargazingRolls)&&shapes.every(s=>legal(data,s,s.positive)))best={expectedRolls:r.stargazingRolls,groups:copy(r.stargazingGroups),assignment:Object.fromEntries(pending.map((p,i)=>[p.part,assignment[i]])),example:shapes.map(s=>({part:s.part,baseId:s.baseId,positive:s.positive,growth:s.growth,maxRemoved:s.maxRemoved,nativeMinimumChanges:s.baseline,maxPositiveRecords:s.maxPositiveRecords,maxRecords:s.maxRecords})),placement:copy(r.placement||[]),recipeChanged:false,alternatives:1};
+ for(const set of sets){if(cfg.numerical?.deadlineMs&&Date.now()>=cfg.numerical.deadlineMs)break;
   // Skills may move between existing mode groups. Bucket by each mode's named
   // demand, so independently accepted group outcomes can still coexist.
   const buckets=new Map();for(const row of set.families){const available=await Promise.all(row.map((s,i)=>lookup(assignment[i],s)));if(available.some(p=>!(p.p>0)))continue;const totals=new Map();for(let i=0;i<row.length;i++){const m=assignment[i];if(!totals.has(m))totals.set(m,new Map());for(const[id,n]of row[i].positive)totals.get(m).set(id,(totals.get(m).get(id)||0)+n);}const k=key([...totals].sort(([a],[b])=>a.localeCompare(b)).map(([m,v])=>[m,[...v].sort((a,b)=>a[0]-b[0])]));if(!buckets.has(k))buckets.set(k,[]);buckets.get(k).push(row);}
-  for(const rows of buckets.values()){let total=independent;const groups=[];for(const mode of [...new Set(assignment)]){const indices=assignment.flatMap((m,i)=>m===mode?[i]:[]),fs=rows.map(row=>indices.map(i=>row[i])),ck=mode+'|'+key(fs.map(f=>f.map(signature).sort()).sort());
-    if(!cache.has(ck)){const goals=[...new Map(fs.flat().map(s=>[signature(s),s])).values()],events=await loadOutcomeRates(goals,s=>lookup(mode,s));cache.set(ck,groupMean(fs,events,cfg.numerical));evaluations++;}const result=cache.get(ck);if(result.expectedRolls==null){total=Infinity;break;}total+=result.expectedRolls;groups.push({mode,parts:indices.map(i=>pending[i].part),...result,shared:true,sourceArmorId:SOURCE,alternatives:new Set(fs.map(f=>key(f.map(signature).sort()))).size});if(best&&total>=best.expectedRolls)break;
+  for(const rows of buckets.values()){if(cfg.numerical?.deadlineMs&&Date.now()>=cfg.numerical.deadlineMs)break;let total=independent;const groups=[];for(const mode of [...new Set(assignment)]){const indices=assignment.flatMap((m,i)=>m===mode?[i]:[]),fs=rows.map(row=>indices.map(i=>row[i])),ck=mode+'|'+key(fs.map(f=>f.map(signature).sort()).sort());
+    if(!cache.has(ck)){const goals=[...new Map(fs.flat().map(s=>[signature(s),s])).values()],events=await loadOutcomeRates(goals,s=>lookup(mode,s));const value=groupMean(fs,events,cfg.numerical);if(value.expectedRolls!=null)cache.set(ck,value);else {total=Infinity;break;}evaluations++;}const result=cache.get(ck);if(result.expectedRolls==null){total=Infinity;break;}total+=result.expectedRolls;groups.push({mode,parts:indices.map(i=>pending[i].part),...result,shared:true,sourceArmorId:SOURCE,alternatives:new Set(fs.map(f=>key(f.map(signature).sort()))).size});if(best&&total>=best.expectedRolls)break;
    }if(groups.length!==new Set(assignment).size)continue;if(!Number.isFinite(total)||best&&total>=best.expectedRolls)continue;
    const sample=rows.slice().sort((a,b)=>sum(b.map(s=>s.positive.filter(([,n])=>n>1).length))-sum(a.map(s=>s.positive.filter(([,n])=>n>1).length)))[0];best={expectedRolls:total,groups:[...groups,...independentGroups],assignment:Object.fromEntries(pending.map((p,i)=>[p.part,assignment[i]])),example:sample.map(s=>({part:s.part,baseId:s.baseId,positive:s.positive,growth:s.growth,maxRemoved:s.maxRemoved,nativeMinimumChanges:s.baseline,maxPositiveRecords:s.maxPositiveRecords,maxRecords:s.maxRecords})),placement:set.recipe.placement,recipeChanged:set.recipe.id!=='original',alternatives:rows.length};
   }
  }
- return {...(best||{expectedRolls:null,reason:'unobserved-donor-goal'}),model:'lookup-equivalence-approximation',sourceArmorId:SOURCE,truncated,fixedModes:true,modeSearch:'fixed-current-group',numericBounds:'disjoint-applicability-cells',groupEvaluations:evaluations,recipeCount:sets.length,totalAllocations:sum(sets.map(s=>s.families.length))};
+ return {...(best||{expectedRolls:null,reason:'unobserved-donor-goal'}),groupKey:equivalenceGroupKey(data,r,request,modes,shapes,recipeOptions,sets,cfg),model:'lookup-equivalence-approximation',sourceArmorId:SOURCE,truncated,fixedModes:true,modeSearch:'fixed-current-group',numericBounds:'disjoint-applicability-cells',groupEvaluations:evaluations,recipeCount:sets.length,totalAllocations:sum(sets.map(s=>s.families.length))};
 }
 async function evaluate(data,route,request,bank,rawConfig={},inventory=null){
  const r=copy(route),modes=rawConfig.modes||MODES,donor=data.armors.find(a=>a.id===SOURCE);if(!donor)throw Error('缺少公会宫殿护腿数据');
- for(const p of r.pieces)if(p.expectedRolls>0&&p.pool===6){const s=shape(data,p,request);p.donorGoal=s;p.donorProbabilities=await Promise.all(modes.map(async mode=>({mode,...await bank.query(donor,mode,donorOptions(s))})));p.donorArmorId=SOURCE;}
+ for(const p of r.pieces)if(p.expectedRolls>0&&p.pool===6){const s=correctedShape(shape(data,p,request),rawConfig);p.donorGoal=s;p.donorProbabilities=await Promise.all(modes.map(async mode=>({mode,...await bank.query(donor,mode,donorOptions(s))})));p.donorArmorId=SOURCE;}
  const plan=await currentPlan(data,r.pieces,request,bank,modes,rawConfig);
- r.stargazingRolls=plan.stargazingRolls;r.stargazingGroups=plan.groups;r.stargazingValid=plan.valid;r.modeOptimization=plan.stats;r.stargazingModel='palace-current-group-multiplicity-v2';r.stargazingSourceArmorId=SOURCE;r.stargazingIndividualRolls=plan.expectedRolls;
+ r.stargazingRolls=plan.stargazingRolls;r.stargazingGroups=plan.groups;r.stargazingValid=plan.valid;r.modeOptimization=plan.stats;r.stargazingModel=currentModel(rawConfig);r.stargazingSourceArmorId=SOURCE;r.stargazingIndividualRolls=plan.expectedRolls;
  for(const p of r.pieces)if(p.expectedRolls>0&&p.pool===6){p.stargazingProbability=null;if(!plan.valid)p.mode=p.stargazingMode=null;}
  for(const[i,c]of plan.choices.entries())if(c){r.pieces[i].mode=r.pieces[i].stargazingMode=c.mode;r.pieces[i].stargazingProbability=c;/* actual-armor probability stays separate */}
  r.equivalentStargazing=await equivalent(data,r,request,bank,modes,inventory,rawConfig);r.observationPending=false;return r;
 }
-const api={SOURCE,shape,donorOptions,signature,legal,families,recipes,covers,ratePlan,outcomeRates,loadOutcomeRates,groupMean,currentPlan,equivalent,evaluate};if(typeof module!=='undefined'&&module.exports)module.exports=api;root.ForgeStargazing=api;
+const api={SOURCE,shape,correctedShape,deletionWeights,donorOptions,signature,legal,families,recipes,equivalenceGroupKey,covers,ratePlan,outcomeRates,loadOutcomeRates,groupMean,currentPlan,equivalent,evaluate};if(typeof module!=='undefined'&&module.exports)module.exports=api;root.ForgeStargazing=api;
 })(globalThis);

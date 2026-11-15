@@ -128,6 +128,17 @@ function fallbackEffects(data,pool,remaining){
  return raw.values.filter(v=>v.value>0&&v.weight>0).map(v=>({atomId:raw.id,value:v.value,valueIndex:v.value_index,attribute:'defense',count:1,fallback:true,cost:raw.cost})).sort((a,b)=>b.value-a.value||a.valueIndex-b.valueIndex);
 }
 function fallbackEffect(data,pool,remaining){return fallbackEffects(data,pool,remaining)[0]||null;}
+// Solver-side retained-record approximation: put all negative DEF before
+// positive DEF, then find a positive order whose running sum never becomes 0.
+// At most six ordinary records means at most 32 positive-subset states when
+// signs are mixed. Other numeric categories do not change DEF cancellation.
+function defenseOrder(data,armor,atoms){
+ const defense=atoms.filter(a=>data.atoms.find(v=>v.pool===armor.pool&&v.id===a.atomId)?.category===13),negative=sum(defense.filter(a=>a.value<0).map(a=>a.value*a.count)),positive=defense.filter(a=>a.value>0).flatMap(a=>Array(a.count).fill(a.value));
+ if(!defense.length)return true;if(!negative)return positive.length>0;if(!positive.length)return true;
+ positive.sort((a,b)=>b-a);const full=(1<<positive.length)-1,failed=new Uint8Array(1<<positive.length);
+ function visit(mask,net){if(mask===full)return true;if(failed[mask])return false;let previous;for(let i=0;i<positive.length;i++)if(!(mask&(1<<i))&&positive[i]!==previous){previous=positive[i];const next=net+positive[i];if(next!==0&&visit(mask|(1<<i),next))return true;}failed[mask]=1;return false;}
+ return visit(0,negative);
+}
 function finishFreeArmor(data,request,piece){
  const armor=data.armors.find(a=>a.id===piece.id),pool=data.atoms.filter(a=>a.pool===armor.pool),raw=new Map(pool.map(a=>[a.id,a]));
  const records=sum(piece.atoms.map(a=>a.count)),cost=sum(piece.atoms.map(a=>raw.get(a.atomId).cost*a.count)),net=sum(piece.atoms.filter(a=>raw.get(a.atomId).category===13).map(a=>a.value*a.count));
@@ -138,12 +149,12 @@ function finishFreeArmor(data,request,piece){
   // Build this small DP only after an actual cancellation. Reroll individual
   // existing records, keeping their IDs, signed costs and record counts intact.
   if(!rerolls){
-   const base=piece.atoms.flatMap(a=>Array.from({length:a.count},()=>({...a,count:1})));let states=new Map([[0,{net:0,changes:0,atoms:base}]]);
+   const base=piece.atoms.flatMap(a=>Array.from({length:a.count},()=>({...a,count:1})));let states=new Map([['0|',{net:0,positive:[],changes:0,atoms:base}]]);
    for(let i=0;i<base.length;i++){
     const a=base[i],row=raw.get(a.atomId);if(row.category!==13)continue;const next=new Map();
     for(const state of states.values())for(const v of row.values.filter(v=>v.weight>0)){
-     const n=state.net+v.value,changes=state.changes+Number(v.value!==a.value||a.valueIndex!=null&&v.value_index!==a.valueIndex),old=next.get(n);
-     if(old&&old.changes<=changes)continue;const atoms=state.atoms.slice();atoms[i]={...a,value:v.value,valueIndex:v.value_index};next.set(n,{net:n,changes,atoms});
+     const n=state.net+v.value,positive=v.value>0?[...state.positive,v.value].sort((a,b)=>a-b):state.positive,key=n+'|'+positive.join(','),changes=state.changes+Number(v.value!==a.value||a.valueIndex!=null&&v.value_index!==a.valueIndex),old=next.get(key);
+     if(old&&old.changes<=changes)continue;const atoms=state.atoms.slice();atoms[i]={...a,value:v.value,valueIndex:v.value_index};next.set(key,{net:n,positive,changes,atoms});
     }
     states=next;
    }
@@ -162,7 +173,7 @@ function finishFreeArmor(data,request,piece){
   const added=effect?[...state.atoms,effect]:state.atoms,atoms=[...piece.atoms,...added.map(({cost,...a})=>a)];
   // Avoid rebuilding skill maps for candidates which cannot beat a known finish.
   const finalDefense=armor.defense+state.net+(effect?.value||0),finished=!!effect||state.cost===armor.budget;
-  const ceiling=existingDefense.length&&state.net+(effect?.value||0)===0?Math.max(finalDefense,armor.defense+maxExistingNet+state.net-net+(effect?.value||0)):finalDefense;
+  const ceiling=existingDefense.length&&(state.net+(effect?.value||0)===0||!defenseOrder(data,armor,[...piece.atoms,...state.atoms]))?Math.max(finalDefense,armor.defense+maxExistingNet+state.net-net+(effect?.value||0)):finalDefense;
   if(best&&(Number(finished)<Number(best.finished)||finished===best.finished&&(ceiling<best.value.finalDefense||ceiling===best.value.finalDefense&&state.cost+(effect?.cost||0)<=best.value.cost)))return;
   let value;try{value=evaluateArmor(data,request,{id:piece.id,atoms});}catch(e){if(e.code==='DEFENSE_CANCELLED')value=repairDefense(added.map(({cost,...a})=>a));if(!value){lastError=e;return;}}
   if(!best||Number(finished)>Number(best.finished)||finished===best.finished&&(value.finalDefense>best.value.finalDefense||value.finalDefense===best.value.finalDefense&&(value.cost>best.value.cost||value.cost===best.value.cost&&value.records<best.value.records)))best={finished,value};
@@ -173,7 +184,7 @@ function finishFreeArmor(data,request,piece){
    if(count===6&&state.cost<armor.budget){for(const effect of fallbackEffects(data,armor.pool,armor.budget-state.cost))consider(state,count+1,effect);continue;}
    consider(state,count);
    if(state.cost>=armor.budget||count===6)continue;
-   for(const effect of ordinary){const nextCost=state.cost+effect.cost,nextNet=state.net+effect.value;if(nextCost>armor.budget||nextNet===0)continue;const candidate={atoms:[...state.atoms,effect],cost:nextCost,net:nextNet};next.set(nextCost+':'+nextNet,candidate);}
+   for(const effect of ordinary){const nextCost=state.cost+effect.cost,nextNet=state.net+effect.value;if(nextCost>armor.budget)continue;const candidate={atoms:[...state.atoms,effect],cost:nextCost,net:nextNet};next.set(nextCost+':'+nextNet+'|'+candidate.atoms.map(a=>a.value).sort((a,b)=>a-b).join(','),candidate);}
   }
   frontier=[...next.values()];
  }
@@ -213,7 +224,7 @@ function completeCountDefense(data,request,result){
      if(cost>armor.budget||baseDefense+defense===0)continue;
      // At six records the next accepted entry must be the selected closing tier.
      const candidate={atoms:[...state.atoms,effect],cost,defense};
-     next.set(cost+':'+defense,candidate);
+     next.set(cost+':'+defense+(options.defenseFallback?'|'+candidate.atoms.map(a=>(a.fallback?'f':'o')+a.value).sort().join(','):''),candidate);
     }
    }
    frontier=[...next.values()];
@@ -237,12 +248,14 @@ function canFailOrdinaryDraw(data,armor,atoms,remaining){
 function splitFallback(data,armor,atoms,records,cost){
  const remaining=armor.budget-cost,marked=atoms.filter(a=>a.fallback===true),dedicated=atoms.find(a=>isDedicatedFallback(data.atoms.find(v=>v.pool===armor.pool&&v.id===a.atomId)));
  if(records<7){
+  if(!defenseOrder(data,armor,atoms)){const error=new Error(PART_NAMES[armor.part]+'自由防御词条按负防御在前时无法避开中途抵消');error.code='DEFENSE_CANCELLED';error.defensePhase='before-fallback';error.defenseFailure='order';error.armorId=armor.id;throw error;}
   if(marked.length||dedicated)throw new Error('防御收尾只能在六条自由记录之后产生第七条');
   if(records===0)return {atoms,freeRecords:0,before:remaining,after:remaining,effect:null,termination:'unaugmented'};
   if(remaining===0)return {atoms,freeRecords:records,before:0,after:0,effect:null,termination:'budget'};
   if(records<6&&canFailOrdinaryDraw(data,armor,atoms,remaining))return {atoms,freeRecords:records,before:remaining,after:remaining,effect:null,termination:'failed'};
   throw new Error('炼化尚未满足结束条件：六条且有预算时必须防御收尾；短记录须预算耗尽或可连续失败结束');
  }
+ let cancelledFree=false,orderFailure=false;
  for(let i=0;i<atoms.length;i++){
   const t=atoms[i];if(marked.length&&t.fallback!==true)continue;if(dedicated&&t!==dedicated)continue;
   const raw=data.atoms.find(a=>a.pool===armor.pool&&a.id===t.atomId);if(raw?.category!==13||raw.cost<=0)continue;
@@ -250,8 +263,13 @@ function splitFallback(data,armor,atoms,records,cost){
   if(!expected)continue;
   const free=atoms.flatMap((a,j)=>j!==i?[{...a,fallback:false}]:a.count>1?[{...a,count:a.count-1,fallback:false}]:[]);
   if(sum(free.map(a=>a.count))!==6||free.some(a=>!isOrdinaryAtom(data.atoms.find(v=>v.pool===armor.pool&&v.id===a.atomId))))continue;
+  // The six ordinary records must exist before the closing draw. A later
+  // DEF addition cannot restore records erased by an earlier zero-sum.
+  const defense=free.filter(a=>data.atoms.find(v=>v.pool===armor.pool&&v.id===a.atomId)?.category===13);
+  if(!defenseOrder(data,armor,free)){cancelledFree=true;orderFailure||=sum(defense.map(a=>a.value*a.count))!==0;continue;}
   const effect={...expected};delete effect.cost;return {atoms:[...free,effect],freeRecords:6,before,after:remaining,effect,termination:'full'};
  }
+ if(cancelledFree){const error=new Error(PART_NAMES[armor.part]+'防御兜底前的自由防御词条无法避开抵消，抵消记录不能保留到第七条收尾');error.code='DEFENSE_CANCELLED';error.defensePhase='before-fallback';error.defenseFailure=orderFailure?'order':'zero';error.armorId=armor.id;throw error;}
  throw new Error(PART_NAMES[armor.part]+'固定炼化与防御兜底冲突：七条结果须包含六条自由记录及正确的防御收尾');
 }
 function buildModel(data,request,armors,charms,excluded=[]){
@@ -554,7 +572,7 @@ function modelSeed(data,model,result){
    return a.atomId===e.atom&&(a.valueIndex??0)===(e.valueIndex??0);
   }).map(a=>a.count));set(e.n,count);}
   if(p.fallbackSelectors){const f=piece.fallback;if(!f)return null;const state=p.fallbackSelectors.find(s=>s.kind===f.termination&&f.before>=s.lower&&f.before<=s.upper&&(!f.effect?!s.effect:s.effect?.atomId===f.effect.atomId&&s.effect?.valueIndex===f.effect.valueIndex));if(!state)return null;set(state.n,1);if(state.kind==='failed')for(const w of p.failureWitnesses||[])set(w.n,w.test(piece)?1:0);}
-  if(p.defenseCancellationVars){const net=piece.finalDefense-piece.defense,has=piece.atoms.some(a=>data.atoms.find(v=>v.pool===piece.pool&&v.id===a.atomId)?.category===13);set(p.defenseCancellationVars.has,has?1:0);set(p.defenseCancellationVars.positive,has&&net>0?1:0);}
+  for(const [field,before]of [['defenseCancellationVars',false],['defenseBeforeFallbackVars',true]])if(p[field]){const atoms=piece.atoms.filter(a=>(!before||!a.fallback)&&data.atoms.find(v=>v.pool===piece.pool&&v.id===a.atomId)?.category===13),net=sum(atoms.map(a=>a.value*a.count)),has=atoms.length>0;set(p[field].has,has?1:0);set(p[field].positive,has&&net>0?1:0);}
  }
  const charm=model.charms.find(c=>charmSignature(c.c)===charmSignature(result.charm));if(!charm)return null;set(charm.n,1);
  for(const d of model.decos)set(d.n,result.decorations.find(v=>v.id===d.d.id)?.count||0);
@@ -706,11 +724,13 @@ function addExclusion(model,excluded){
   model.lp.constraint(terms,'<=',charm?5:4);
  }else model.lp.constraint(terms,'<=',4);
 }
-function excludeDefenseCancellation(model,armorId){
- const p=model.pieces.find(p=>p.a.id===armorId);if(!p||p.fixed||p.defenseCancellationChecked)return false;
- const terms=(p.numeric||[]).filter(v=>v.attribute==='defense');if(!terms.length)return false;
+function excludeDefenseCancellation(model,armorId,beforeFallback=false){
+ const checked=beforeFallback?'defenseBeforeFallbackChecked':'defenseCancellationChecked',variables=beforeFallback?'defenseBeforeFallbackVars':'defenseCancellationVars';
+ const p=model.pieces.find(p=>p.a.id===armorId);if(!p||p.fixed||p[checked])return false;
+ const terms=(p.numeric||[]).filter(v=>v.attribute==='defense'&&(!beforeFallback||!v.fallback));if(!terms.length)return false;
  // Add this disjunction only after a candidate fails the post-solve check.
  // Permit no DEF records, net DEF <= -1, or net DEF >= 1 on this same armor.
+ // A pre-closing failure constrains ordinary records, excluding the closer.
  const {lp}=model,has=lp.variable('def_used'),positive=lp.variable('def_positive');
  const negativeBound=7*Math.max(1,...terms.map(v=>-v.value)),positiveBound=7*Math.max(1,...terms.map(v=>v.value));
  lp.constraint([...terms.map(v=>[1,v.n]),[-7,has]],'<=',0);
@@ -719,10 +739,10 @@ function excludeDefenseCancellation(model,armorId){
  const net=terms.map(v=>[v.value,v.n]);
  lp.constraint([...net,[-negativeBound-1,positive],[negativeBound,has]],'>=',0);
  lp.constraint([...net,[-positiveBound-1,positive],[1,has]],'<=',0);
- p.defenseCancellationChecked=true;p.defenseCancellationVars={has,positive};return true;
+ p[checked]=true;p[variables]={has,positive};return true;
 }
-function excludeFreePattern(model,armorId,solution){
- const p=model.pieces.find(p=>p.a.id===armorId);if(!p?.postFallback)return false;
+function excludeFreePattern(model,armorId,solution,allowFull=false){
+ const p=model.pieces.find(p=>p.a.id===armorId);if(!p||p.fixed||!p.postFallback&&!allowFull)return false;
  const value=n=>Math.round(solution.Values?solution.Values[model.lp.indices.get(n)]||0:solution.Columns?.[n]?.Primal||0);
  const names=[...p.edits.map(e=>e.n),...p.numeric.map(e=>e.n),...p.choices.map(c=>c.n)],key=names.map(value).join(',');
  p.rejectedFreePatterns=p.rejectedFreePatterns||new Set();if(p.rejectedFreePatterns.has(key))return false;p.rejectedFreePatterns.add(key);
@@ -810,7 +830,7 @@ async function search(data,request,highs,progress=()=>{},execution={}){
     const exclusion=timed&&allFixed?{armors:verified.armors.map(a=>a.id),charm:charmSignature(verified.charm)}:verified.armors.map(a=>a.id);
     excluded.push(exclusion);addExclusion(model,exclusion);if(timed&&!full)break;
    }catch(e){
-    attempt.validation=e.message;if(e.code==='POST_FALLBACK_INVALID'&&excludeFreePattern(model,e.armorId,raw))continue;if(e.code==='DEFENSE_CANCELLED'&&excludeDefenseCancellation(model,e.armorId))continue;
+    attempt.validation=e.message;if(e.code==='POST_FALLBACK_INVALID'&&excludeFreePattern(model,e.armorId,raw))continue;if(e.code==='DEFENSE_CANCELLED'&&e.defenseFailure==='order'&&excludeFreePattern(model,e.armorId,raw,true))continue;if(e.code==='DEFENSE_CANCELLED'&&e.defenseFailure!=='order'&&excludeDefenseCancellation(model,e.armorId,e.defensePhase==='before-fallback'))continue;
     if(raw.Status==='Infeasible'&&full){exhaustive=results.length===0;domainExhausted=true;}break;
    }
   }}finally{solver?.dispose();}

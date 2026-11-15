@@ -2,7 +2,7 @@
 (function(root){'use strict';
 const E=root.ForgeEngine||(typeof require==='function'?require('./engine.js'):null),I=root.ForgeInventory||(typeof require==='function'?require('./inventory.js'):null),M=root.ForgeMod||(typeof require==='function'?require('./mod.js'):null);
 const copy=x=>JSON.parse(JSON.stringify(x)),sum=xs=>xs.reduce((a,b)=>a+b,0),check=(v,m)=>{if(!v)throw Error(m);},skillVector=(levels,targets)=>targets.flatMap(s=>(levels[s.id]||0)>0?[{skill_id:s.id,level:levels[s.id]}]:[]);
-function config(raw={}){const seconds=Number(raw.seconds??60),limit=Number(raw.limit??5),skeletons=Number(raw.skeletons??30),modes=raw.modes||['normal','skills','slots'];check(Number.isFinite(seconds)&&seconds>=3&&seconds<=180,'指导时限需为3～180秒');check(Number.isInteger(limit)&&limit>=1&&limit<=50,'路线数量需为1～50');check(Number.isInteger(skeletons)&&skeletons>=2&&skeletons<=120,'候选骨架数量需为2～120');check(['all','inventory'].includes(raw.source||'all'),'待炼防具来源无效');check(modes.length&&modes.every(m=>['normal','skills','slots'].includes(m)),'请至少选择一种炼化方式');return {seconds,limit,skeletons,modes:[...new Set(modes)],source:raw.source||'all',decos:raw.decos==='all'?'all':'owned'};}
+function config(raw={}){const seconds=Number(raw.seconds??60),limit=Number(raw.limit??5),skeletons=Number(raw.skeletons??30),modes=raw.modes||['normal','skills','slots'];check(Number.isFinite(seconds)&&seconds>=3&&seconds<=180,'指导时限需为3～180秒');check(Number.isInteger(limit)&&limit>=1&&limit<=50,'路线数量需为1～50');check(Number.isInteger(skeletons)&&skeletons>=2&&skeletons<=150,'候选骨架数量需为2～150');check(['all','inventory'].includes(raw.source||'all'),'待炼防具来源无效');check(modes.length&&modes.every(m=>['normal','skills','slots'].includes(m)),'请至少选择一种炼化方式');return {seconds,limit,skeletons,modes:[...new Set(modes)],source:raw.source||'all',decos:raw.decos==='all'?'all':'owned',graftInverseCorrection:raw.graftInverseCorrection===true,graftDeletionCorrection:raw.graftDeletionCorrection===true||raw.graftDeletionCorrection!==false&&raw.graftInverseCorrection==null,...(Object.hasOwn(raw,'graftCompleteOutcomeCorrection')?{graftCompleteOutcomeCorrection:raw.graftCompleteOutcomeCorrection===true}:{})};}
 // Positive subset recurrence avoids cancellation in inclusion/exclusion.
 function exclusiveMean(probabilities){
  if(!probabilities.length)return 0;check(probabilities.length<=5,'观星组最多五件装备');check(probabilities.every(p=>Number.isFinite(p)&&p>0&&p<=1),'观星概率无效');if(sum(probabilities)>1+1e-12)return Infinity;
@@ -31,7 +31,7 @@ function optimizeModes(pieces){
  }
  visit(0,0,0);return best?{...best,valid:true,stats}:{valid:false,stargazingRolls:null,expectedRolls:sum(pending.map(p=>1/p.choices[0].p)),choices:pieces.map((p,i)=>pending.find(x=>x.index===i)?.choices[0]||null),groups:[],stats};
 }
-function compare(a,b){return equivalentScore(a)-equivalentScore(b)||stargazingScore(a)-stargazingScore(b)||a.expectedRolls-b.expectedRolls||a.needsRolling-b.needsRolling||a.needsCrafting-b.needsCrafting||a.id.localeCompare(b.id);}
+function compare(a,b){if(a.searchObjective==='equivalent-stargazing'||b.searchObjective==='equivalent-stargazing'){const x=equivalentScore(a),y=equivalentScore(b);if(Number.isFinite(x)&&Number.isFinite(y)){const d=x-y;if(Math.abs(d)>1e-9*Math.max(1,Math.min(x,y)))return d;}else if(x!==y)return x-y;return a.expectedRolls-b.expectedRolls||a.id.localeCompare(b.id);}return equivalentScore(a)-equivalentScore(b)||stargazingScore(a)-stargazingScore(b)||a.expectedRolls-b.expectedRolls||a.needsRolling-b.needsRolling||a.needsCrafting-b.needsCrafting||a.id.localeCompare(b.id);}
 // Equivalence is for completed, verified routes only. Search columns and their
 // concrete skill IDs remain untouched: a label swap is not a search shortcut.
 function routeEquivalenceKey(data,r){
@@ -57,8 +57,9 @@ function routeEquivalenceKey(data,r){
  // recipe is not an independent augmentation route when guarantees match.
  return JSON.stringify(['capabilities-v2',r.weaponId,r.inventoryId,shapes,E.charmSignature(r.charm),ref(r.charm.guideRef),levels(Object.entries(r.totals||{}))]);
 }
-function preferRepresentative(a,b){const cost=equivalentScore(a)-equivalentScore(b)||stargazingScore(a)-stargazingScore(b)||a.expectedRolls-b.expectedRolls||a.needsRolling-b.needsRolling||a.needsCrafting-b.needsCrafting;if(cost)return cost;const slots=r=>sum(r.pieces.map(p=>sum(p.goal?.slots||p.slots||[])));return slots(b)-slots(a)||a.id.localeCompare(b.id);}
-function uniqueRoutes(data,routes,limit=Infinity){const kept=new Map();for(const r of routes){const key=r.equivalenceKey||routeEquivalenceKey(data,r),old=kept.get(key);if(!old||preferRepresentative(r,old)<0)kept.set(key,r);}return [...kept.values()].sort(compare).slice(0,limit);}
+function displayEquivalenceKey(data,r){return r.searchObjective==='equivalent-stargazing'&&r.verified&&Number.isFinite(equivalentScore(r))&&r.equivalentStargazing?.groupKey?r.equivalentStargazing.groupKey:r.equivalenceKey||routeEquivalenceKey(data,r);}
+function preferRepresentative(a,b){if(a.searchObjective==='equivalent-stargazing'||b.searchObjective==='equivalent-stargazing'){const ranked=compare(a,b);if(ranked)return ranked;}const cost=equivalentScore(a)-equivalentScore(b)||stargazingScore(a)-stargazingScore(b)||a.expectedRolls-b.expectedRolls||a.needsRolling-b.needsRolling||a.needsCrafting-b.needsCrafting;if(cost)return cost;const slots=r=>sum(r.pieces.map(p=>sum(p.goal?.slots||p.slots||[])));return slots(b)-slots(a)||a.id.localeCompare(b.id);}
+function uniqueRoutes(data,routes,limit=Infinity){const kept=new Map();for(const r of routes){const key=displayEquivalenceKey(data,r),old=kept.get(key);if(!old||preferRepresentative(r,old)<0)kept.set(key,r);}return [...kept.values()].sort(compare).slice(0,limit);}
 function prepare(data,request,raw,cfg){
  const stock=raw?.byKey?raw:I.parse(data,raw),q=copy(request),o=q.options||{};
  E.validateRequest(data,{...q,options:{...o,fixedArmors:{}}});
@@ -108,6 +109,30 @@ function route(solved,ctx){const r=solved.result,byId=new Map(solved.data.armors
 }
 function optionsFor(base,minLevels,slots,request){return {minimumChanges:request.skills.flatMap(s=>{const original=base.skills.find(x=>x.skill_id===s.id)?.level||0,min=(minLevels[s.id]||0)-original;return original||min>0?[{id:s.id,min}]:[];}),minSlots:[...slots].sort((a,b)=>b-a),maxPositiveRecords:request.options?.augmentLimits?.[base.part]??7,...(request.options?.deleteSkills===false?{maxRemoved:0}:{})};}
 function goalIdentity(base,kind,minLevels,slots,options){return JSON.stringify([base.id,kind,minLevels,slots,options.maxPositiveRecords,options.maxRemoved??null]);}
+
+// These descriptors order proposals only. Actual column costs remain 1/max(p).
+function capabilityPressure(data,base,levels,slots,request){
+ const native=new Map(base.skills.map(s=>[s.skill_id,s.level])),skillMap=new Map(data.skills.map(s=>[s.id,s]));
+ let addedCost=0,positiveLevels=0,repeated=0,removed=0,growth=0;
+ for(const[id,v]of Object.entries(levels)){const n=Math.max(0,v-(native.get(+id)||0));addedCost+=n*(skillMap.get(+id)?.cost||0);positiveLevels+=n;repeated+=Math.max(0,n-1);}
+ for(const s of base.skills)removed+=Math.max(0,s.level-(levels[s.skill_id]||0));
+ if(request.options?.deleteSkills===false)removed=0;
+ for(;growth<=12;growth++)if(slots.every((v,i)=>(E.upgradeSlots(base.slots,growth)[i]||0)>=v))break;
+ let remaining=growth,slotCost=0,slotRecords=0;
+ for(const a of data.atoms.filter(a=>a.pool===base.pool&&a.category===19).sort((a,b)=>b.values[0].value-a.values[0].value)){const v=a.values[0].value;if(v>0){const n=Math.floor(remaining/v);remaining-=n*v;slotCost+=n*a.cost;slotRecords+=n;}}
+ if(remaining)slotCost=1000;
+ const atom=data.atoms.find(a=>a.pool===base.pool&&a.category===20&&a.cost<0&&a.values.some(v=>v.value===-1));
+ const availableRemoved=Math.min(removed,Math.max(0,7-positiveLevels-slotRecords)),refundAvailable=availableRemoved*-(atom?.cost||0),deficit=Math.max(0,addedCost+slotCost-base.budget),refundUsed=Math.min(deficit,refundAvailable),pressure=(deficit-refundUsed)/Math.max(1,base.budget);
+ const load=pressure+.15*(positiveLevels+slotRecords)+.25*repeated-((availableRemoved>0 && positiveLevels>0) ? .15 : 0);
+ return {addedCost,slotCost,positiveLevels,slotRecords,repeated,availableRemoved,refundAvailable,refundUsed,pressure,load:Math.max(0,load)};
+}
+function relaxedCapabilityGoals(base,levels,slots,request){
+ const out=[],seen=new Set(),put=(levels,slots)=>{slots=slots.filter(v=>v>0).sort((a,b)=>b-a);const key=JSON.stringify([levels,slots]);if(!seen.has(key)){seen.add(key);out.push({levels,slots});}};
+ for(const s of request.skills){const n=levels[s.id]||0,original=base.skills.find(v=>v.skill_id===s.id)?.level||0;if(n>0&&(request.options?.deleteSkills!==false||n>original))put({...levels,[s.id]:n-1},slots);}
+ for(let i=0;i<slots.length;i++){if(i&&slots[i]===slots[i-1])continue;put({...levels},slots.filter((_,j)=>j!==i));if(slots[i]>1)put({...levels},slots.map((v,j)=>j===i?v-1:v));}
+ return out;
+}
+
 async function analyze(data,request,rawInventory,highs,bank,rawConfig={},progress=()=>{},execution={}){
  const cfg=config(rawConfig),ctx=prepare(data,request,rawInventory,cfg),started=Date.now(),deadline=started+cfg.seconds*1000,results=new Map(),patterns=[...ctx.kept],known=new Set(),errors=[];
  const left=()=>Math.max(0,(deadline-Date.now())/1000),publish=r=>{const key=r.equivalenceKey=routeEquivalenceKey(data,r),old=results.get(key);if(!old||preferRepresentative(r,old)<0){results.set(key,r);progress({phase:'guide-route',route:r});}},partComplete=ps=>E.PARTS.every(part=>ps.some(p=>p.part===part));
@@ -121,13 +146,18 @@ async function analyze(data,request,rawInventory,highs,bank,rawConfig={},progres
  if(left()>1){
   const seconds=Math.max(1,Math.min(8,left()*.2)),q={...ctx.query,options:{...ctx.query.options,augment:request.options?.augment!==false,deleteSkills:request.options?.deleteSkills!==false,defenseFallback:true,seconds,limit:Math.min(8,cfg.skeletons),searchMode:'count'}};
   progress({phase:'guide-status',message:'搜索待炼化骨架…'});
-  await E.search(generation,q,highs,m=>{if(m.phase==='result'&&!skeletons.some(r=>E.resultIdentity(r)===E.resultIdentity(m.result)))skeletons.push(m.result);}, {charms:ctx.charms,profile:'alternate',seed:31,completeDefense:false,transformModel:model=>{model.lp.objective=[];for(const p of model.pieces){model.lp.objective.push([p.a.guide.kind==='keep'?0:30,p.x]);for(const e of p.edits||[])model.lp.objective.push([e.sign>0?data.skills.find(s=>s.id===e.skill).cost+5:.05,e.n]);for(const c of p.choices||[])model.lp.objective.push([c.points||c.atoms?.reduce((n,a)=>n+a.value,0)||0,c.n]);}}});
+  await E.search(generation,q,highs,m=>{if(m.phase==='result'&&!skeletons.some(r=>E.resultIdentity(r)===E.resultIdentity(m.result)))skeletons.push(m.result);}, {charms:ctx.charms,profile:'alternate',seed:31,completeDefense:false,transformModel:model=>{model.lp.objective=[];for(const p of model.pieces){model.lp.objective.push([p.a.guide.kind==='keep'?0:15,p.x]);for(const e of p.edits||[])model.lp.objective.push([e.sign>0?data.skills.find(s=>s.id===e.skill).cost+6:-1,e.n]);for(const c of p.choices||[])model.lp.objective.push([10*(c.points||c.atoms?.reduce((n,a)=>n+a.value,0)||0),c.n]);}}});
  }
- let patternCount=0,skipped=0,refinements=0,masterBuilds=0,masterSolves=0,session=null,sessionSize=0,bestIndividual=null;
+ let patternCount=0,skipped=0,refinements=0,masterBuilds=0,masterSolves=0,session=null,sessionSize=0,sessionCeiling=Infinity,bestIndividual=null;
+ const priorityWeight=Math.max(0,Math.min(.25,execution.priorityWeight??.15)),targets=[],targetKeys=new Set(),relaxedTargets=new Set(),searchStats={priorityWeight,relaxQueries:0,skillSwaps:0,slotSwaps:0,enumeratedAnchors:0,rounds:0},skillMap=new Map(data.skills.map(s=>[s.id,s]));
+ const remember=(source,levels,slots)=>{const k=JSON.stringify([source.id,levels,slots]);if(!targetKeys.has(k)){targetKeys.add(k);targets.push({key:k,source,levels:{...levels},slots:[...slots]});}};
  async function addPattern(source,minLevels,slots,exampleAtoms){
   minLevels={...minLevels};const base=data.armors.find(a=>a.id===source.guide.baseId);
   if(ctx.request.options?.deleteSkills===false)for(const s of base.skills)if(Object.hasOwn(minLevels,s.skill_id))minLevels[s.skill_id]=Math.max(minLevels[s.skill_id],s.level);
+  slots=[...slots].filter(v=>v>0).sort((a,b)=>b-a);remember(source,minLevels,slots);
   const opts=optionsFor(base,minLevels,slots,ctx.request),key=goalIdentity(base,source.guide.kind,minLevels,slots,opts);if(known.has(key))return null;known.add(key);
+  if(source.guide.kind==='craft'&&ctx.request.skills.every(s=>(minLevels[s.id]||0)<=(base.skills.find(v=>v.skill_id===s.id)?.level||0))&&slots.every((v,i)=>(base.slots[i]||0)>=v))return null;
+  const positive=opts.minimumChanges.filter(s=>s.min>0);if(positive.some(s=>s.min+(base.skills.find(v=>v.skill_id===s.id)?.level||0)>skillMap.get(s.id).max)||base.skills.length+positive.filter(s=>!base.skills.some(v=>v.skill_id===s.id)).length>5)return null;
   if(left()<.1)return null;const evaluated=await Promise.all(cfg.modes.map(async mode=>({mode,...await bank.query(base,mode,opts)}))),probabilities=evaluated.filter(p=>p.p>0);
   probabilities.sort((a,b)=>b.p-a.p);if(!probabilities.length){skipped++;return null;}const best=probabilities[0],goal={skills:skillVector(minLevels,ctx.request.skills),slots:opts.minSlots,maxPositiveRecords:opts.maxPositiveRecords,deleteSkills:ctx.request.options?.deleteSkills!==false,minimumChanges:opts.minimumChanges};
   const p={...base,id:'goal:'+patternCount++,skills:goal.skills,slots:goal.slots,defense:0,pool:0,budget:0,guide:{...source.guide,goal,mode:best.mode,probability:best,probabilities,expectedRolls:1/best.p,exampleAtoms:copy(exampleAtoms||[])}};patterns.push(p);return p;
@@ -142,17 +172,19 @@ async function analyze(data,request,rawInventory,highs,bank,rawConfig={},progres
   for(const p of changing){const min=mins.get(p.id);for(const s of ctx.request.skills){const drop=Math.min(min[s.id],remaining[s.id]);min[s.id]-=drop;remaining[s.id]-=drop;}}
   for(const p of changing){if(left()<.1)break;await addPattern(generation.armors.find(a=>a.id===p.id),mins.get(p.id),slots.get(p.id),p.atoms);}
   progress({phase:'guide-status',message:'评估炼化目标 '+(i+1)+' / '+skeletons.length+' · '+patterns.length+'个候选能力'});
-  if(i===0&&partComplete(patterns)&&left()>.3){const solved=solvePatterns(data,ctx,patterns,highs,Math.min(1,left()*.1));if(solved){bestIndividual=solved;publish(route(solved,ctx));}}
+  if(!execution.equivalentOptimizer&&i===0&&partComplete(patterns)&&left()>.3){const solved=solvePatterns(data,ctx,patterns,highs,Math.min(1,left()*.1));if(solved){bestIndividual=solved;publish(route(solved,ctx));}}
   await new Promise(resolve=>setTimeout(resolve,0));
  }
  // Probability-priced master: rebuild only after new columns arrive; reuse the
  // native model for alternative routes, and seed a larger model with its best
  // individual-cost incumbent. No stargazing information enters this objective.
  const anchors=[],expanded=new Set(),triedMoves=new Set(),sourceById=new Map(ctx.fresh.map(a=>[a.guide.baseId,a]));
- function master(seconds){if(!partComplete(patterns))return null;if(!session||sessionSize!==patterns.length){session?.dispose();session=capabilitySession(data,ctx,patterns,highs,[],bestIndividual?.result);sessionSize=patterns.length;masterBuilds++;}masterSolves++;const solved=session.solve(seconds);if(solved){if(!bestIndividual||solved.individualCost<bestIndividual.individualCost)bestIndividual=solved;publish(route(solved,ctx));if(!anchors.some(a=>a.result.armors.map(p=>p.id).join('|')===solved.result.armors.map(p=>p.id).join('|')))anchors.push(solved);}return solved;}
+ async function relaxTargets(limit,fraction){let processed=0,added=0;const snapshot=targets.slice();for(const t of snapshot){if(processed>=limit||left()<Math.max(.5,cfg.seconds*fraction))break;if(relaxedTargets.has(t.key))continue;relaxedTargets.add(t.key);processed++;const base=data.armors.find(a=>a.id===t.source.guide.baseId);for(const g of relaxedCapabilityGoals(base,t.levels,t.slots,ctx.request)){if(left()<Math.max(.4,cfg.seconds*fraction))break;searchStats.relaxQueries++;if(await addPattern(t.source,g.levels,g.slots))added++;}}return added;}
+ const balance=gs=>{const loads=gs.map(g=>capabilityPressure(data,data.armors.find(a=>a.id===g.source.guide.baseId),g.levels,g.slots,ctx.request).load);return Math.max(0,...loads)+sum(loads.map(v=>v*v));};
+ function master(seconds){if(!partComplete(patterns))return null;const ceiling=bestIndividual?.individualCost??Infinity;if(!session||sessionSize!==patterns.length||ceiling<sessionCeiling-1e-8){session?.dispose();const active=patterns.filter(p=>capabilityCost(p.guide)<=ceiling+1e-8);session=capabilitySession(data,ctx,active,highs,[],bestIndividual?.result);sessionSize=patterns.length;sessionCeiling=ceiling;searchStats.modelColumns=active.length;searchStats.pricedColumns=patterns.length;masterBuilds++;}masterSolves++;const solved=session.solve(seconds);if(solved){if(!bestIndividual||solved.individualCost<bestIndividual.individualCost)bestIndividual=solved;publish(route(solved,ctx));if(!anchors.some(a=>a.result.armors.map(p=>p.id).join('|')===solved.result.armors.map(p=>p.id).join('|')))anchors.push(solved);}return solved;}
  function neighborhoods(solved){
   const chosen=solved.result.pieces.map(p=>{const a=solved.data.armors.find(a=>a.id===p.id);return {a,source:sourceById.get(a.guide.baseId),levels:Object.fromEntries(ctx.request.skills.map(s=>[s.id,p.levels[s.id]||0])),slots:solved.result.placement.filter(v=>v.owner===p.id&&v.decorationId).map(v=>data.decorations.find(d=>d.id===v.decorationId).slot).sort((a,b)=>b-a),cost:capabilityCost(a.guide)};}).sort((a,b)=>b.cost-a.cost);
-  const moves=[],put=(priority,goals)=>{if(goals.some(g=>!g.source))return;const key=JSON.stringify(goals.map(g=>[g.source.id,g.levels,g.slots]));if(triedMoves.has(key))return;moves.push({key,priority,goals});};
+  const moves=[],localSeen=new Set(),before=balance(chosen.filter(p=>p.source).map(p=>({source:p.source,levels:p.levels,slots:p.slots}))),put=(priority,goals,kind='transfer')=>{if(goals.some(g=>!g.source))return;for(const g of goals)g.slots=[...g.slots].filter(v=>v>0).sort((a,b)=>b-a);const key=JSON.stringify(goals.map(g=>[g.source.id,g.levels,g.slots]).sort((a,b)=>a[0].localeCompare(b[0])));if(triedMoves.has(key)||localSeen.has(key))return;localSeen.add(key);const next=chosen.filter(p=>p.source).map(p=>goals.find(g=>g.source.part===p.source.part)||{source:p.source,levels:p.levels,slots:p.slots}),gain=Math.max(-1,Math.min(1,(before-balance(next))/(1+before)));moves.push({key,priority:priority*(1+priorityWeight*gain),goals,kind});};
   const spec=(p,levels=p.levels,slots=p.slots)=>({source:p.source,levels,slots});
   for(const p of chosen){
    if(!p.source)continue;
@@ -160,7 +192,7 @@ async function analyze(data,request,rawInventory,highs,bank,rawConfig={},progres
    // often. Limit the shortlist by missing levels / growth, not by shared modes.
    const proxy=a=>sum(ctx.request.skills.map(s=>Math.max(0,(p.levels[s.id]||0)-(a.skills.find(v=>v.skill_id===s.id)?.level||0))*(data.skills.find(v=>v.id===s.id).cost??100)))+Math.max(0,sum(p.slots)-sum(a.slots))*6;
    const alternatives=ctx.fresh.filter(a=>a.part===p.a.part&&a.id!==p.source.id).sort((a,b)=>proxy(a)-proxy(b)||a.id.localeCompare(b.id)).slice(0,6);
-   for(const a of alternatives)put(p.cost,[{source:a,levels:p.levels,slots:p.slots}]);
+   for(const a of alternatives)put(p.cost,[{source:a,levels:p.levels,slots:p.slots}],'armor');
    for(const target of ctx.request.skills){const id=target.id;if(!(p.levels[id]>0))continue;const relaxed={...p.levels,[id]:p.levels[id]-1};
     for(const receiver of chosen)if(receiver!==p&&receiver.source&&(receiver.levels[id]||0)<data.skills.find(s=>s.id===id).max)put(p.cost,[spec(p,relaxed),spec(receiver,{...receiver.levels,[id]:(receiver.levels[id]||0)+1})]);
    }
@@ -168,9 +200,17 @@ async function analyze(data,request,rawInventory,highs,bank,rawConfig={},progres
     for(const receiver of chosen)if(receiver!==p&&receiver.source&&receiver.slots.length<3)put(p.cost+1,[spec(p,p.levels,relaxed),spec(receiver,receiver.levels,[...receiver.slots,level].sort((a,b)=>b-a))]);
    }
   }
-  return moves.sort((a,b)=>b.priority-a.priority);
+  // Exchange two skill levels atomically; intermediate three-skill goals need not exist.
+  for(let i=0;i<chosen.length;i++)for(let j=i+1;j<chosen.length;j++){const a=chosen[i],b=chosen[j];if(!a.source||!b.source)continue;
+   for(const sa of ctx.request.skills)if((a.levels[sa.id]||0)>0)for(const sb of ctx.request.skills)if(sa.id!==sb.id&&(b.levels[sb.id]||0)>0&&(a.levels[sb.id]||0)<skillMap.get(sb.id).max&&(b.levels[sa.id]||0)<skillMap.get(sa.id).max){const al={...a.levels,[sa.id]:a.levels[sa.id]-1,[sb.id]:(a.levels[sb.id]||0)+1},bl={...b.levels,[sb.id]:b.levels[sb.id]-1,[sa.id]:(b.levels[sa.id]||0)+1};put(Math.max(a.cost,b.cost),[spec(a,al),spec(b,bl)],'skill-swap');}
+   // Exchange hole requirements even when both pieces already use three holes.
+   for(let ai=0;ai<a.slots.length;ai++)for(let bi=0;bi<b.slots.length;bi++){if(a.slots[ai]===b.slots[bi])continue;const as=a.slots.map((v,k)=>k===ai?b.slots[bi]:v),bs=b.slots.map((v,k)=>k===bi?a.slots[ai]:v);put(Math.max(a.cost,b.cost),[spec(a,a.levels,as),spec(b,b.levels,bs)],'slot-swap');}
+  }
+  const queues=['transfer','armor','skill-swap','slot-swap'].map(kind=>moves.filter(m=>m.kind===kind).sort((a,b)=>b.priority-a.priority)),ordered=[];while(queues.some(q=>q.length))for(const q of queues)if(q.length)ordered.push(q.shift());return ordered;
  }
+ if(execution.equivalentOptimizer)return await execution.equivalentOptimizer({data,ctx,request:ctx.request,rawInventory,highs,bank,cfg,patterns,targets,sourceById,skeletons,started,deadline,left,progress,addPattern,relaxTargets,neighborhoods,markTried:key=>triedMoves.add(key),getPricingStats:()=>({unobservedGoals:skipped,patterns:patterns.length})});
  try{
+  if(execution.relaxation!==false)await relaxTargets(Math.max(40,cfg.skeletons),.65);
   if(left()>.15)master(Math.min(2,left()*.15));
   // Add simple capabilities independently of the seed's per-part allocation.
   // Otherwise changing a native skill layout can require a coordinated move
@@ -191,25 +231,29 @@ async function analyze(data,request,rawInventory,highs,bank,rawConfig={},progres
     for(const s of upgrades)for(const slots of shapes.values()){if(left()<Math.max(.5,cfg.seconds*.2))break;await addPattern(source,s?{...levels,[s.id]:(levels[s.id]||0)+1}:levels,slots);}
     processed++;if(processed%4===0){progress({phase:'guide-status',message:'评估独立技能／孔位能力 · '+processed+' / '+selected.size});await new Promise(resolve=>setTimeout(resolve,0));}
    }
+   if(execution.relaxation!==false)await relaxTargets(Math.max(40,cfg.skeletons),.4);
    if(left()>.2)master(Math.min(3,left()*.2));
   }
   // Bound the neighborhood, keep improving the hardest pieces first, and query
   // probabilities before accepting any proposal into the priced model.
-  for(let round=0;round<Math.ceil(cfg.skeletons/2)&&left()>.5;round++){
-   const anchor=anchors.filter(a=>!expanded.has(a)).sort((a,b)=>a.individualCost-b.individualCost)[0];if(!anchor)break;
+  for(let round=0;round<Math.ceil(cfg.skeletons/2)&&left()>Math.max(2,cfg.seconds*.1);round++){
+   searchStats.rounds++;
+   let anchor=anchors.filter(a=>!expanded.has(a)).sort((a,b)=>a.individualCost-b.individualCost)[0];
+   if(!anchor&&session&&bestIndividual&&searchStats.enumeratedAnchors<Math.min(8,cfg.limit)){const seed=master(Math.min(1,left()*.05));if(seed){session.exclude(seed);searchStats.enumeratedAnchors++;master(Math.min(1.5,left()*.05));}anchor=anchors.filter(a=>!expanded.has(a)).sort((a,b)=>a.individualCost-b.individualCost)[0];}
+   if(!anchor){if(execution.relaxation!==false&&await relaxTargets(24,.15)){master(Math.min(2,left()*.1));continue;}break;}
    const moves=neighborhoods(anchor),batch=Math.max(24,Math.min(64,cfg.skeletons*2));let added=0;
    if(moves.length<=batch)expanded.add(anchor);
-   for(const move of moves.slice(0,batch)){if(left()<Math.max(.4,cfg.seconds*.07))break;triedMoves.add(move.key);for(const g of move.goals)if(await addPattern(g.source,g.levels,g.slots))added++;refinements++;}
-   progress({phase:'guide-status',message:'按逐件概率优化 · '+patterns.length+'个候选能力 · '+refinements+'组调整'});
+   for(const move of moves.slice(0,batch)){if(left()<Math.max(.4,cfg.seconds*.07))break;triedMoves.add(move.key);if(move.kind==='skill-swap')searchStats.skillSwaps++;if(move.kind==='slot-swap')searchStats.slotSwaps++;for(const g of move.goals)if(await addPattern(g.source,g.levels,g.slots))added++;refinements++;}
+   if(execution.relaxation!==false&&round%3===2)added+=await relaxTargets(16,.15);progress({phase:'guide-status',message:'按逐件概率优化 · '+patterns.length+'个候选能力 · '+refinements+'组调整'});
    if(added&&left()>.2)master(Math.min(2,left()*.18));
-   else if(!anchors.some(a=>!expanded.has(a)))break;
+   else if(!anchors.some(a=>!expanded.has(a)))continue;
    await new Promise(resolve=>setTimeout(resolve,0));
   }
   // Enumerate nearby individual optima with row additions on the same model.
   // Only completed candidates receive joint mode allocation and final ranking.
   if(bestIndividual&&left()>.1){let solved=master(Math.min(1.5,left()*.25));const minimum=Math.max(8,cfg.limit*2),maximum=Math.min(160,Math.max(minimum,cfg.limit*8));for(let i=0;i<maximum&&solved&&left()>.1&&(i<minimum||results.size<cfg.limit);i++){session.exclude(solved);solved=master(Math.min(1.5,left()/Math.max(1,Math.min(5,cfg.limit-i))));}}
  }finally{session?.dispose();}
- return {results:[...results.values()].sort(compare).slice(0,cfg.limit),elapsedMs:Date.now()-started,directOwned:false,patterns:patterns.length,skeletons:skeletons.length,refinements,masterBuilds,masterSolves,individualBestRolls:bestIndividual?.individualCost,unobservedGoals:skipped,inventoryId:ctx.stock.id,errors,scope:'individual expected rolls master with bounded capability neighborhoods; stargazing allocation only for final ranking'};
+ execution.capture?.({patterns,ctx,searchStats});return {searchStats,results:[...results.values()].sort(compare).slice(0,cfg.limit),elapsedMs:Date.now()-started,directOwned:false,patterns:patterns.length,skeletons:skeletons.length,refinements,masterBuilds,masterSolves,individualBestRolls:bestIndividual?.individualCost,unobservedGoals:skipped,inventoryId:ctx.stock.id,errors,scope:'individual expected rolls master with bounded capability neighborhoods; stargazing allocation only for final ranking'};
 }
-const api={config,compare,prepare,solvePatterns,capabilitySession,capabilityCost,route,routeEquivalenceKey,preferRepresentative,uniqueRoutes,optionsFor,exclusiveMean,optimizeModes,stargazingScore,equivalentScore,analyze};if(typeof module!=='undefined'&&module.exports)module.exports=api;root.ForgeHandcraft=api;
+const api={capabilityPressure,relaxedCapabilityGoals,config,compare,prepare,solvePatterns,capabilitySession,capabilityCost,route,routeEquivalenceKey,displayEquivalenceKey,preferRepresentative,uniqueRoutes,optionsFor,exclusiveMean,optimizeModes,stargazingScore,equivalentScore,analyze};if(typeof module!=='undefined'&&module.exports)module.exports=api;root.ForgeHandcraft=api;
 })(globalThis);
